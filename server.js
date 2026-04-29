@@ -1,5 +1,6 @@
 /**
- * AI互動雷雕拍照系統 - 雲端後端伺服器 (SD 穩定版)
+ * AI互動雷雕拍照系統 - 雲端後端伺服器 
+ * (最新版：SDXL 官方穩定版 + 一筆畫時尚速寫風格)
  */
 
 const express = require('express');
@@ -27,16 +28,16 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 偵測到 API Token，開始呼叫 Replicate AI...");
+            console.log("🚀 偵測到 API Token，開始呼叫 Replicate SDXL (一筆畫風格)...");
 
-            // 使用官方穩定且支援 img2img 的經典模型版本
+            // 🌟 核心：使用官方 SDXL 模型，並注入「一筆畫/時尚速寫」的專屬提示詞
             const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
-                version: "15a3689ee13b0d2616e98820eca31d4c3abcd36672ff6afce5cb6ef165fe8baa", 
+                version: "39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b", 
                 input: {
                     image: image,
-                    prompt: "masterpiece, pure line art, white background, black lines, clean vector art, strictly black and white, flat, no shadows, no gray",
-                    negative_prompt: "shadows, colors, shading, gray, realistic, photorealistic, noise, gradient",
-                    prompt_strength: 0.7, 
+                    prompt: "continuous single line drawing, elegant minimalist fashion sketch, one line art portrait, pure black continuous line on pure white background, distinct facial features, abstract but recognizable likeness, vector graphic style, no shading, no disconnected lines",
+                    negative_prompt: "shading, colors, gray, realistic, photorealistic, noise, gradient, short disconnected lines, messy sketch, crosshatching, 3d, busy background",
+                    prompt_strength: 0.75, // 設定為 0.75，給予 AI 較大的空間將原圖抽象化為單一線條
                     num_inference_steps: 30
                 }
             }, {
