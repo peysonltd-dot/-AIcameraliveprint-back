@@ -14,7 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // 🌟 設定您的風格參考圖網址 (GitHub Raw 直連網址)
-const STYLE_REF_URL = "https://raw.githubusercontent.com/peysonltd-dot/Alcameraliveprint/main/style.jpg.jpg";
+const STYLE_REF_URL = "https://raw.githubusercontent.com/peysonltd-dot/AIcameraliveprint/main/style.jpg.jpg";
 
 app.get('/', (req, res) => {
     res.status(200).send("🟢 AI 雷雕系統 (Nano Banana 2) 正常運行中");
