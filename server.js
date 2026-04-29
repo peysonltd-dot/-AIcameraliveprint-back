@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 雲端後端伺服器 (ControlNet 極致穩定展場版)
+ * AI互動雷雕拍照系統 - 雲端後端伺服器 (SDXL 終極防彈版)
  */
 
 const express = require('express');
@@ -14,7 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI 雷雕系統 (ControlNet 穩定版) 正常運行中");
+    res.status(200).send("🟢 AI 雷雕系統 (SDXL 防彈版) 正常運行中");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -27,24 +27,22 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 呼叫 ControlNet 進行強制線稿描邊...");
+            console.log("🚀 呼叫官方 SDXL 進行極簡線稿轉換...");
 
-            // 🌟 核心變更：使用專攻線稿、保證不塞車的 ControlNet 模型
-            const createRes = await axios.post('https://api.replicate.com/v1/models/rossjillian/controlnet/predictions', {
+            // 🌟 核心變更：回到我們已經成功過的穩定大腦，絕不 404
+            const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
+                version: "39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b", 
                 input: {
-                    // 1. 照片輸入：鎖死五官輪廓
                     image: image,
+                    // 終極線稿咒語：強制著色本風格、白底黑線
+                    prompt: "pure black and white line art, continuous line drawing, minimalist ink outline of this exact person, pure white background, coloring book style, high contrast, solid black clean vector lines, no shading",
+                    negative_prompt: "color, shading, gradients, realistic, 3d, skin tone, painting, shadows, gray, texture, photorealistic, messy lines, background details",
                     
-                    // 2. 終極咒語：把美女線稿的靈魂用文字描述出來
-                    prompt: "A minimalist continuous line art drawing of this person, elegant single stroke style, pure white background, solid black clean vector ink lines, high contrast, elegant facial contour, no shading, simple and clean",
-                    negative_prompt: "color, shading, gradients, realistic, 3d, skin tone, painting, shadows, gray, texture, photorealistic, messy lines, multiple strokes",
-                    
-                    // 3. 關鍵設定：指定 ControlNet 類型為 "lineart"
-                    structure: "lineart",
-                    
-                    // 確保線條純淨的控制參數
-                    steps: 20,
-                    scale: 9
+                    // 🌟 黃金比例：0.70。足夠把顏色抽乾變成線條，又不會讓臉部完全變形
+                    prompt_strength: 0.70, 
+                    num_inference_steps: 30,
+                    // 關閉安全濾網，避免黑圖
+                    disable_safety_checker: true 
                 }
             }, {
                 headers: { 
@@ -57,7 +55,7 @@ app.post('/api/generate-lineart', async (req, res) => {
             let isComplete = false;
             let finalImageUrl = null;
 
-            console.log("⏳ ControlNet 描圖中 (預計 5~15 秒)...");
+            console.log("⏳ SDXL 算圖中 (預計 5~10 秒)...");
             while (!isComplete) {
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 
@@ -67,8 +65,7 @@ app.post('/api/generate-lineart', async (req, res) => {
                 
                 const status = checkRes.data.status;
                 if (status === 'succeeded') {
-                    // ControlNet 輸出通常第一張是原圖偵測結果，第二張是生成的圖
-                    finalImageUrl = checkRes.data.output[1] || checkRes.data.output[0];
+                    finalImageUrl = checkRes.data.output[0];
                     isComplete = true;
                 } else if (status === 'failed' || status === 'canceled') {
                     throw new Error('AI 處理失敗: ' + checkRes.data.error);
