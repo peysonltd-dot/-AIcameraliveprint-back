@@ -1,6 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 雲端後端伺服器 
- * (最新版：SDXL 官方穩定版 + 極致純黑白一筆畫)
+ * AI互動雷雕拍照系統 - 雲端後端伺服器 (SDXL 完美調教版)
  */
 
 const express = require('express');
@@ -28,17 +27,21 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 偵測到 API Token，開始呼叫 Replicate SDXL (純黑白一筆畫)...");
+            console.log("🚀 偵測到 API Token，開始呼叫 Replicate SDXL 完美調教版...");
 
-            // 🌟 核心：強制去色的純黑白一筆畫咒語
+            // 🌟 核心修正：使用官方 SDXL 1.0，並調教為「精準線稿模式」
             const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
                 version: "39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b", 
                 input: {
                     image: image,
-                    prompt: "strict monochrome, pure black and white lineart, single continuous black ink line drawing, minimalist outline sketch, pure white background, simple contour portrait, no colors, blank canvas",
-                    negative_prompt: "color, colorful, shading, gradients, abstract geometric shapes, 3d, realistic, painting, cubism, thick lines, messy, dark background, gray",
-                    prompt_strength: 0.85, 
-                    num_inference_steps: 30
+                    // 咒語更新：明確告訴 AI 這是「這個人的肖像 (portrait of this person)」
+                    prompt: "A minimalist black and white line art portrait of this exact person, pure white background, solid black clean vector lines, no shading, simple elegant outline",
+                    negative_prompt: "colors, painting, realistic, photorealistic, 3d, shadows, gray, background details, deformed, messy lines",
+                    // 關鍵修正 1：降低創意指數，強制保留原本五官輪廓 (0.50 最穩定)
+                    prompt_strength: 0.50, 
+                    num_inference_steps: 30,
+                    // 關鍵修正 2：強制關閉安全濾網，解決「全黑圖片」的問題
+                    disable_safety_checker: true 
                 }
             }, {
                 headers: { 
@@ -76,7 +79,7 @@ app.post('/api/generate-lineart', async (req, res) => {
             return res.status(200).json({ success: true, result: base64Img });
 
         } else {
-            console.log("⚠️ 未設定 REPLICATE_API_TOKEN，原圖退回");
+            console.log("⚠️ 未設定 REPLICATE_API_TOKEN，原圖退回由前端演算法處理");
             await new Promise(resolve => setTimeout(resolve, 800)); 
             return res.status(200).json({ success: true, result: image });
         }
