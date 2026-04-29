@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 雲端後端伺服器 (終極 ControlNet 描邊版)
+ * AI互動雷雕拍照系統 - 雲端後端伺服器 (終極 ControlNet Canny 描邊版)
  */
 
 const express = require('express');
@@ -14,7 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI 雷雕系統 (ControlNet 終極版) 正常運行中");
+    res.status(200).send("🟢 AI 雷雕系統 (ControlNet Canny 終極版) 正常運行中");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -23,19 +23,17 @@ app.post('/api/generate-lineart', async (req, res) => {
         if (!image) return res.status(400).json({ error: '未提供圖片資料' });
         console.log("📥 [請求到達] 收到新的影像處理請求");
 
-        // 🔐 使用環境變數讀取金鑰
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 呼叫 ControlNet 進行強制邊緣描圖...");
+            console.log("🚀 呼叫 ControlNet Canny 進行強制邊緣描圖...");
 
-            // 🌟 呼叫業界標準的 ControlNet Lineart 模型
-            const createRes = await axios.post('https://api.replicate.com/v1/models/jagilley/controlnet-lineart/predictions', {
+            // 🌟 修正：正確的模型名稱是 controlnet-canny
+            const createRes = await axios.post('https://api.replicate.com/v1/models/jagilley/controlnet-canny/predictions', {
                 input: {
-                    image: image, // 直接丟入您的照片
+                    image: image,
                     prompt: "pure black and white line art, coloring book style, crisp black lines on pure white background, minimal shading, clean vector lines",
                     negative_prompt: "color, dark background, gray, shading, realistic, 3d, noise, messy lines",
-                    // ControlNet 通常不需要調降 prompt_strength，因為它被邊緣線強制綁定了
                     num_inference_steps: 20
                 }
             }, {
@@ -59,7 +57,6 @@ app.post('/api/generate-lineart', async (req, res) => {
                 
                 const status = checkRes.data.status;
                 if (status === 'succeeded') {
-                    // 🌟 智慧判斷：有些 ControlNet 會回傳 [線稿提取圖, 最終生成圖]，我們永遠取最後一張
                     const output = checkRes.data.output;
                     if (Array.isArray(output)) {
                         finalImageUrl = output[output.length - 1]; 
