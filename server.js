@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 雲端後端伺服器 (SDXL 終極穩定版)
+ * AI互動雷雕拍照系統 - 雲端後端伺服器 (SD 穩定版)
  */
 
 const express = require('express');
@@ -27,16 +27,17 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 偵測到 API Token，開始呼叫 Replicate SDXL...");
+            console.log("🚀 偵測到 API Token，開始呼叫 Replicate AI...");
 
-            // 🌟 核心修正：使用官方最新的 SDXL 模型，保證不 404
-            const createRes = await axios.post('https://api.replicate.com/v1/models/stability-ai/sdxl/predictions', {
+            // 使用官方穩定且支援 img2img 的經典模型版本
+            const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
+                version: "15a3689ee13b0d2616e98820eca31d4c3abcd36672ff6afce5cb6ef165fe8baa", 
                 input: {
                     image: image,
                     prompt: "masterpiece, pure line art, white background, black lines, clean vector art, strictly black and white, flat, no shadows, no gray",
                     negative_prompt: "shadows, colors, shading, gray, realistic, photorealistic, noise, gradient",
-                    // 控制強度：0.7 可以保留您臉部的特徵輪廓，同時套用極簡線稿風格
-                    prompt_strength: 0.7 
+                    prompt_strength: 0.7, 
+                    num_inference_steps: 30
                 }
             }, {
                 headers: { 
@@ -74,7 +75,7 @@ app.post('/api/generate-lineart', async (req, res) => {
             return res.status(200).json({ success: true, result: base64Img });
 
         } else {
-            console.log("⚠️ 未設定 REPLICATE_API_TOKEN，原圖退回由前端演算法處理");
+            console.log("⚠️ 未設定 REPLICATE_API_TOKEN，原圖退回");
             await new Promise(resolve => setTimeout(resolve, 800)); 
             return res.status(200).json({ success: true, result: image });
         }
