@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 雲端後端伺服器 (SDXL 極簡穩定版)
+ * AI互動雷雕拍照系統 - 雲端後端伺服器 (方案3：Nano Banana 2 單圖版)
  */
 
 const express = require('express');
@@ -14,7 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI 雷雕系統 (SDXL 穩定版) 正常運行中");
+    res.status(200).send("🟢 AI 雷雕系統 (Nano Banana 2 單圖版) 正常運行中");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -27,18 +27,18 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 呼叫 SDXL 進行黑白線稿轉換...");
+            console.log("🚀 呼叫 Google Nano Banana 2 進行單圖線稿轉換...");
 
-            // 🌟 回歸最穩定的 SDXL，使用超強「著色本」咒語
-            const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
-                version: "39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b", 
+            const createRes = await axios.post('https://api.replicate.com/v1/models/google/nano-banana-2/predictions', {
                 input: {
-                    image: image,
-                    prompt: "pure black and white line art portrait of THIS EXACT person, coloring book style, black ink outline on white paper, monochrome, high contrast, clean minimalist vector lines, simple facial contour, pure white background",
-                    negative_prompt: "color, shading, gradients, realistic, 3d, skin tone, painting, shadows, gray, texture, photorealistic",
-                    prompt_strength: 0.85, // 85% 變成線稿，15% 保留您的五官
-                    num_inference_steps: 30,
-                    disable_safety_checker: true // 關閉安全審查，防止變黑圖
+                    // 🌟 嚴格咒語：強制轉換為純黑白線稿，嚴禁顏色
+                    prompt: "Transform this photograph into a pure black and white line art portrait of this exact person, coloring book style, black ink outline on white paper, monochrome, high contrast, clean minimalist vector lines, simple facial contour. strictly NO colors, NO shading, NO gray.",
+                    
+                    // 🌟 關鍵修改：只放一張照片，避開任何網址 404 的風險
+                    image_input: [image], 
+                    
+                    aspect_ratio: "match_input_image",
+                    output_format: "jpg"
                 }
             }, {
                 headers: { 
@@ -51,7 +51,7 @@ app.post('/api/generate-lineart', async (req, res) => {
             let isComplete = false;
             let finalImageUrl = null;
 
-            console.log("⏳ SDXL 算圖中 (預計 10~15 秒)...");
+            console.log("⏳ Google 大腦計算中 (預計 5~10 秒)...");
             while (!isComplete) {
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 
@@ -61,7 +61,8 @@ app.post('/api/generate-lineart', async (req, res) => {
                 
                 const status = checkRes.data.status;
                 if (status === 'succeeded') {
-                    finalImageUrl = checkRes.data.output[0];
+                    // Nano Banana 2 回傳的是單一字串網址，不是陣列
+                    finalImageUrl = checkRes.data.output; 
                     isComplete = true;
                 } else if (status === 'failed' || status === 'canceled') {
                     throw new Error('AI 處理失敗: ' + checkRes.data.error);
@@ -80,7 +81,6 @@ app.post('/api/generate-lineart', async (req, res) => {
         }
 
     } catch (error) {
-        // 🚨 強化除錯機制：把真正的錯誤印出來！
         console.error("❌ 伺服器錯誤詳細資訊:");
         if (error.response) {
             console.error(JSON.stringify(error.response.data, null, 2));
