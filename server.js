@@ -35,7 +35,7 @@ app.post('/api/generate-lineart', async (req, res) => {
                 input: {
                     image: image,
                     // 終極線稿咒語：強制著色本風格、白底黑線
-                    prompt: "pure black and white line art, continuous line drawing, minimalist ink outline of this exact person, pure white background, coloring book style, high contrast, solid black clean vector lines, no shading",
+                    prompt: "Strictly redraw the EXACT person from the first input image. You MUST create a pure black and white line art illustration. Use ONLY solid black ink lines on a pure white background. ZERO color, ZERO shading, ZERO gray tones, ZERO background details. DO NOT change facial features, DO NOT add sunglasses or accessories. Use the second input image ONLY as a reference for the minimalist, continuous-line drawing technique.",
                     negative_prompt: "color, shading, gradients, realistic, 3d, skin tone, painting, shadows, gray, texture, photorealistic, messy lines, background details",
                     
                     // 🌟 黃金比例：0.70。足夠把顏色抽乾變成線條，又不會讓臉部完全變形
