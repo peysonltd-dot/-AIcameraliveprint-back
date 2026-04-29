@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 雲端後端伺服器 (方案3：Nano Banana 2 單圖版)
+ * AI互動雷雕拍照系統 - 雲端後端伺服器 (終極 ControlNet 描邊版)
  */
 
 const express = require('express');
@@ -14,7 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI 雷雕系統 (Nano Banana 2 單圖版) 正常運行中");
+    res.status(200).send("🟢 AI 雷雕系統 (ControlNet 終極版) 正常運行中");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -27,18 +27,16 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 呼叫 Google Nano Banana 2 進行單圖線稿轉換...");
+            console.log("🚀 呼叫 ControlNet 進行強制邊緣描圖...");
 
-            const createRes = await axios.post('https://api.replicate.com/v1/models/google/nano-banana-2/predictions', {
+            // 🌟 呼叫業界標準的 ControlNet Lineart 模型
+            const createRes = await axios.post('https://api.replicate.com/v1/models/jagilley/controlnet-lineart/predictions', {
                 input: {
-                    // 🌟 嚴格咒語：強制轉換為純黑白線稿，嚴禁顏色
-                    prompt: "Transform this photograph into a pure black and white line art portrait of this exact person, coloring book style, black ink outline on white paper, monochrome, high contrast, clean minimalist vector lines, simple facial contour. strictly NO colors, NO shading, NO gray.",
-                    
-                    // 🌟 關鍵修改：只放一張照片，避開任何網址 404 的風險
-                    image_input: [image], 
-                    
-                    aspect_ratio: "match_input_image",
-                    output_format: "jpg"
+                    image: image, // 直接丟入您的照片
+                    prompt: "pure black and white line art, coloring book style, crisp black lines on pure white background, minimal shading, clean vector lines",
+                    negative_prompt: "color, dark background, gray, shading, realistic, 3d, noise, messy lines",
+                    // ControlNet 通常不需要調降 prompt_strength，因為它被邊緣線強制綁定了
+                    num_inference_steps: 20
                 }
             }, {
                 headers: { 
@@ -51,7 +49,7 @@ app.post('/api/generate-lineart', async (req, res) => {
             let isComplete = false;
             let finalImageUrl = null;
 
-            console.log("⏳ Google 大腦計算中 (預計 5~10 秒)...");
+            console.log("⏳ ControlNet 描圖中 (預計 10~15 秒)...");
             while (!isComplete) {
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 
@@ -61,8 +59,13 @@ app.post('/api/generate-lineart', async (req, res) => {
                 
                 const status = checkRes.data.status;
                 if (status === 'succeeded') {
-                    // Nano Banana 2 回傳的是單一字串網址，不是陣列
-                    finalImageUrl = checkRes.data.output; 
+                    // 🌟 智慧判斷：有些 ControlNet 會回傳 [線稿提取圖, 最終生成圖]，我們永遠取最後一張
+                    const output = checkRes.data.output;
+                    if (Array.isArray(output)) {
+                        finalImageUrl = output[output.length - 1]; 
+                    } else {
+                        finalImageUrl = output;
+                    }
                     isComplete = true;
                 } else if (status === 'failed' || status === 'canceled') {
                     throw new Error('AI 處理失敗: ' + checkRes.data.error);
