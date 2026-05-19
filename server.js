@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 0.71 黃金平衡版
+ * AI互動雷雕拍照系統 - [方案 B] 偽 ControlNet 邊緣檢測流
  */
 
 const express = require('express');
@@ -15,7 +15,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 專屬 LoRA 雷雕系統 (0.71 黃金平衡版) 正常運行中");
+    res.status(200).send("🟢 專屬 LoRA 雷雕系統 (方案B 邊緣檢測流) 正常運行中");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -26,25 +26,46 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
         
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 啟動自動化雷雕 pipeline...");
+            console.log("🚀 啟動方案 B：偽 ControlNet 邊緣檢測 pipeline...");
 
-            // 🌟 步驟 1: 預處理 (鋪上白底，去雜訊)
+            // ==========================================
+            // 🌟 方案 B 核心：程式化邊緣檢測 (Edge Detection)
+            // ==========================================
             const cameraBuffer = Buffer.from(image.split(",")[1], 'base64');
-            const whiteBackgroundBuffer = await sharp(cameraBuffer)
-                .flatten({ background: '#FFFFFF' })
-                .toBuffer();
-            const preProcessedImageBase64 = "data:image/jpeg;base64," + whiteBackgroundBuffer.toString('base64');
-
-            console.log("⏳ 呼叫最新 0.71 參數進行算圖...");
             
-            // 🌟 步驟 2: 完全套用您截圖中的最新參數
+            // 建立拉普拉斯邊緣檢測矩陣 (Laplacian Kernel)
+            const edgeKernel = {
+                width: 3,
+                height: 3,
+                kernel: [
+                    -1, -1, -1,
+                    -1,  8, -1,
+                    -1, -1, -1
+                ]
+            };
+
+            const sketchBuffer = await sharp(cameraBuffer)
+                .flatten({ background: '#FFFFFF' })
+                .greyscale()                        // 1. 轉灰階
+                .convolve(edgeKernel)               // 2. 邊緣檢測 (把所有輪廓線抓出來，此時是黑底白線)
+                .negate()                           // 3. 顏色反轉 (變成雷雕要的白底黑線草圖！)
+                .normalize()                        // 4. 拉高對比度
+                .toBuffer();
+                
+            const preProcessedImageBase64 = "data:image/jpeg;base64," + sketchBuffer.toString('base64');
+
+            console.log("⏳ 邊緣草圖生成完畢，呼叫 FLUX 進行畫風轉化...");
+            
+            // ==========================================
+            // 🌟 呼叫 FLUX API
+            // ==========================================
             const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
                 version: "33001ca5babe41c8aab61166a2b3442f575890edbde81a4c60dd2cf38d909c57", 
                 input: {
-                    image: preProcessedImageBase64,
+                    image: preProcessedImageBase64, // 💡 傳給 AI 的已經是「線稿草圖」了！
                     
-                    // 🌟 採用我們討論出的「極簡斷捨離」咒語，不讓 AI 分心
-                    prompt: "TOK_CUTELINE",
+                    // 💡 咒語微調：告訴 AI 它拿到的是線稿，請幫我把臉改成豆豆眼
+                    prompt: "TOK_CUTELINE, redraw this sketch as a cute Korean minimal line character. Change the eyes to cute bean eyes. Pure black vector outline, white fill, NO shading, NO solid black areas. Plain white background. Laser engraving ready.",
                     
                     model: "dev",
                     go_fast: false,
@@ -53,12 +74,12 @@ app.post('/api/generate-lineart', async (req, res) => {
                     num_outputs: 1,
                     aspect_ratio: "1:1",
                     output_format: "png",
+                    guidance_scale: 3.5,
                     extra_lora_scale: 1.05,
                     num_inference_steps: 28,
                     
-                    // 👇 根據您的最新截圖更新！
-                    guidance_scale: 3.5,
-                    prompt_strength: 0.71,
+                    // 🌟 因為底圖已經是線稿了，我們只需要 AI「微微調整畫風跟眼睛」，所以強度稍微調降
+                    prompt_strength: 0.65, 
                     output_quality: 80
                 }
             }, {
@@ -83,16 +104,15 @@ app.post('/api/generate-lineart', async (req, res) => {
                 }
             }
 
-            console.log("🎨 算圖完成，啟動 Sharp 終極過濾漂白水...");
+            console.log("🎨 算圖完成，啟動 Sharp 終極洗白...");
             
             const imgResponse = await axios.get(finalImageUrl, { responseType: 'arraybuffer' });
             
-            // 🌟 步驟 3: Sharp 過濾 (強制白底，洗掉灰色雜訊)
             const processedBuffer = await sharp(imgResponse.data)
                 .flatten({ background: '#FFFFFF' }) 
                 .greyscale()                        
                 .normalize()
-                .threshold(180) // 嚴格洗白，確保雷雕只有純黑線條
+                .threshold(180) // 嚴格二值化
                 .toBuffer();
 
             const base64Img = "data:image/png;base64," + processedBuffer.toString('base64');
