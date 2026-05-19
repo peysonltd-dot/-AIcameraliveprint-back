@@ -44,7 +44,7 @@ app.post('/api/generate-lineart', async (req, res) => {
                     image: preProcessedImageBase64,
                     
                     // 🌟 採用我們討論出的「極簡斷捨離」咒語，不讓 AI 分心
-                    prompt: "TOK_CUTELINE, extremely simplified Korean cute minimal line character. Pure black vector outline, white fill, NO shading, NO solid black areas, NO grayscale. Plain white background. Laser engraving ready.",
+                    prompt: "TOK_CUTELINE",
                     
                     model: "dev",
                     go_fast: false,
