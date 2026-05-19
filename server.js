@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - [方案 B] 偽 ControlNet 邊緣檢測流
+ * AI互動雷雕拍照系統 - SDXL 終極完全體 (專屬大腦 + 完美洗白)
  */
 
 const express = require('express');
@@ -15,7 +15,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 專屬 LoRA 雷雕系統 (方案B 邊緣檢測流) 正常運行中");
+    res.status(200).send("🟢 專屬 SDXL 雷雕系統 (完全體) 正常運行中");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -26,61 +26,35 @@ app.post('/api/generate-lineart', async (req, res) => {
         const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_KEY;
         
         if (REPLICATE_API_TOKEN) {
-            console.log("🚀 啟動方案 B：偽 ControlNet 邊緣檢測 pipeline...");
+            console.log("🚀 啟動 SDXL 自動化雷雕 pipeline...");
 
-            // ==========================================
-            // 🌟 方案 B 核心：程式化邊緣檢測 (Edge Detection)
-            // ==========================================
+            // 🌟 步驟 1: 預處理 (鋪上白底，去雜訊)
             const cameraBuffer = Buffer.from(image.split(",")[1], 'base64');
-            
-            // 建立拉普拉斯邊緣檢測矩陣 (Laplacian Kernel)
-            const edgeKernel = {
-                width: 3,
-                height: 3,
-                kernel: [
-                    -1, -1, -1,
-                    -1,  8, -1,
-                    -1, -1, -1
-                ]
-            };
-
-            const sketchBuffer = await sharp(cameraBuffer)
+            const whiteBackgroundBuffer = await sharp(cameraBuffer)
                 .flatten({ background: '#FFFFFF' })
-                .greyscale()                        // 1. 轉灰階
-                .convolve(edgeKernel)               // 2. 邊緣檢測 (把所有輪廓線抓出來，此時是黑底白線)
-                .negate()                           // 3. 顏色反轉 (變成雷雕要的白底黑線草圖！)
-                .normalize()                        // 4. 拉高對比度
                 .toBuffer();
-                
-            const preProcessedImageBase64 = "data:image/jpeg;base64," + sketchBuffer.toString('base64');
+            const preProcessedImageBase64 = "data:image/jpeg;base64," + whiteBackgroundBuffer.toString('base64');
 
-            console.log("⏳ 邊緣草圖生成完畢，呼叫 FLUX 進行畫風轉化...");
+            console.log("⏳ 呼叫專屬 SDXL 大腦進行算圖...");
             
-            // ==========================================
-            // 🌟 呼叫 FLUX API
-            // ==========================================
+            // 🌟 步驟 2: 呼叫您專屬的 SDXL 模型
             const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
-                version: "33001ca5babe41c8aab61166a2b3442f575890edbde81a4c60dd2cf38d909c57", 
+                // 👇 您的專屬 Version ID 已精準載入！
+                version: "468313b6a3efd117687f29683d22de9ea741442e67d6443d9fd340db4d612cbe", 
                 input: {
-                    image: preProcessedImageBase64, // 💡 傳給 AI 的已經是「線稿草圖」了！
+                    image: preProcessedImageBase64,
                     
-                    // 💡 咒語微調：告訴 AI 它拿到的是線稿，請幫我把臉改成豆豆眼
-                    prompt: "TOK_CUTELINE, redraw this sketch as a cute Korean minimal line character. Change the eyes to cute bean eyes. Pure black vector outline, white fill, NO shading, NO solid black areas. Plain white background. Laser engraving ready.",
+                    // 🟢 正面咒語：喚醒您的 SDXL 豆豆眼
+                    prompt: "TOK_CUTELINE-SDXL, a minimal black and white line art portrait of a person, cute Korean minimal character, bean eyes, simple smile. Pure black vector outline, white fill, plain white background, laser engraving ready.",
                     
-                    model: "dev",
-                    go_fast: false,
-                    lora_scale: 0.8,
-                    megapixels: "1",
-                    num_outputs: 1,
-                    aspect_ratio: "1:1",
-                    output_format: "png",
-                    guidance_scale: 3.5,
-                    extra_lora_scale: 1.05,
-                    num_inference_steps: 28,
+                    // 🔴 負面咒語：SDXL 專屬防護罩，防止變黑炭或太寫實
+                    negative_prompt: "colors, shading, gradients, grayscale, solid black fills, realistic, photorealistic, 3d, complex background, noisy lines, artifacts",
                     
-                    // 🌟 因為底圖已經是線稿了，我們只需要 AI「微微調整畫風跟眼睛」，所以強度稍微調降
-                    prompt_strength: 0.65, 
-                    output_quality: 80
+                    // 🌟 參數設定 (SDXL 適用)
+                    prompt_strength: 0.65, // 黃金特徵鎖定點
+                    guidance_scale: 7.5,   // SDXL 的標準 guidance
+                    num_inference_steps: 30,
+                    lora_scale: 0.8
                 }
             }, {
                 headers: { 'Authorization': `Bearer ${REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' }
@@ -97,6 +71,7 @@ app.post('/api/generate-lineart', async (req, res) => {
                 const status = checkRes.data.status;
                 if (status === 'succeeded') {
                     const output = checkRes.data.output;
+                    // SDXL 產出的圖可能是陣列
                     finalImageUrl = Array.isArray(output) ? output[0] : output;
                     isComplete = true;
                 } else if (status === 'failed' || status === 'canceled') {
@@ -108,11 +83,12 @@ app.post('/api/generate-lineart', async (req, res) => {
             
             const imgResponse = await axios.get(finalImageUrl, { responseType: 'arraybuffer' });
             
+            // 🌟 步驟 3: 終極漂白水 (您認證過不用再改的完美配方)
             const processedBuffer = await sharp(imgResponse.data)
                 .flatten({ background: '#FFFFFF' }) 
                 .greyscale()                        
                 .normalize()
-                .threshold(180) // 嚴格二值化
+                .threshold(180) 
                 .toBuffer();
 
             const base64Img = "data:image/png;base64," + processedBuffer.toString('base64');
