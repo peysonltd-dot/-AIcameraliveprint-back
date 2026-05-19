@@ -1,5 +1,5 @@
 /**
- * AI互動雷雕拍照系統 - 黃金參數同步版
+ * AI互動雷雕拍照系統 - 0.71 黃金平衡版
  */
 
 const express = require('express');
@@ -15,7 +15,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 專屬 LoRA 雷雕系統 (黃金參數版) 正常運行中");
+    res.status(200).send("🟢 專屬 LoRA 雷雕系統 (0.71 黃金平衡版) 正常運行中");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -28,25 +28,24 @@ app.post('/api/generate-lineart', async (req, res) => {
         if (REPLICATE_API_TOKEN) {
             console.log("🚀 啟動自動化雷雕 pipeline...");
 
-            // 🌟 步驟 1: 預處理 (強制鋪上白底，消除透明背景與雜訊干擾)
+            // 🌟 步驟 1: 預處理 (鋪上白底，去雜訊)
             const cameraBuffer = Buffer.from(image.split(",")[1], 'base64');
             const whiteBackgroundBuffer = await sharp(cameraBuffer)
                 .flatten({ background: '#FFFFFF' })
                 .toBuffer();
             const preProcessedImageBase64 = "data:image/jpeg;base64," + whiteBackgroundBuffer.toString('base64');
 
-            console.log("⏳ 呼叫黃金參數進行算圖...");
+            console.log("⏳ 呼叫最新 0.71 參數進行算圖...");
             
-            // 🌟 步驟 2: 完全套用您的 JSON 黃金參數
+            // 🌟 步驟 2: 完全套用您截圖中的最新參數
             const createRes = await axios.post('https://api.replicate.com/v1/predictions', {
                 version: "33001ca5babe41c8aab61166a2b3442f575890edbde81a4c60dd2cf38d909c57", 
                 input: {
                     image: preProcessedImageBase64,
                     
-                    // 完全同步您的條列式咒語 (使用 \n 換行符號)
-                    prompt: "TOK_CUTELINE, redraw the person as a cute Korean minimal line character.\n\nUpper body portrait only.\nCentered composition.\nRemove all background and objects completely.\nTransparent white background.\n\nBean eyes, tiny nose, simple smile, Korean kawaii style.\n\nPure black monochrome outline.\nClean uniform vector lines.\nNo shading, no grayscale, no texture.\n\nExtremely simplified SVG contour.\nLaser engraving ready.",
+                    // 🌟 採用我們討論出的「極簡斷捨離」咒語，不讓 AI 分心
+                    prompt: "TOK_CUTELINE, extremely simplified Korean cute minimal line character. Pure black vector outline, white fill, NO shading, NO solid black areas, NO grayscale. Plain white background. Laser engraving ready.",
                     
-                    // 同步 JSON 裡的所有詳細參數
                     model: "dev",
                     go_fast: false,
                     lora_scale: 0.8,
@@ -54,11 +53,13 @@ app.post('/api/generate-lineart', async (req, res) => {
                     num_outputs: 1,
                     aspect_ratio: "1:1",
                     output_format: "png",
-                    guidance_scale: 2.5,
-                    output_quality: 80,
-                    prompt_strength: 0.78,
                     extra_lora_scale: 1.05,
-                    num_inference_steps: 28
+                    num_inference_steps: 28,
+                    
+                    // 👇 根據您的最新截圖更新！
+                    guidance_scale: 3.5,
+                    prompt_strength: 0.71,
+                    output_quality: 80
                 }
             }, {
                 headers: { 'Authorization': `Bearer ${REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' }
@@ -86,11 +87,12 @@ app.post('/api/generate-lineart', async (req, res) => {
             
             const imgResponse = await axios.get(finalImageUrl, { responseType: 'arraybuffer' });
             
-            // 🌟 步驟 3: Sharp 過濾 (只留純黑線條，把剩餘的深色雜訊洗成白底)
+            // 🌟 步驟 3: Sharp 過濾 (強制白底，洗掉灰色雜訊)
             const processedBuffer = await sharp(imgResponse.data)
                 .flatten({ background: '#FFFFFF' }) 
                 .greyscale()                        
-                .threshold(100)                     
+                .normalize()
+                .threshold(180) // 嚴格洗白，確保雷雕只有純黑線條
                 .toBuffer();
 
             const base64Img = "data:image/png;base64," + processedBuffer.toString('base64');
