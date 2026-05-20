@@ -63,7 +63,7 @@ app.post('/api/generate-lineart', async (req, res) => {
                     // 🌟 參數解鎖！
                     // 因為底圖已經是草圖，我們可以大膽拉高 guidance_scale，強迫 AI 畫出乾淨的極簡畫風！
                     prompt_strength: 0.65, 
-                    guidance_scale: 15,   // 恢復高固執度，確保畫風不泥濘
+                    guidance_scale: 7.5,   // 恢復高固執度，確保畫風不泥濘
                     lora_scale: 0.8,
                     num_inference_steps: 30
                 }
