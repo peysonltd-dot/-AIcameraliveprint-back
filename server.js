@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Render 部署版)
- * 終極穩定版：使用 BLIP 視覺模型確保特徵抓取，並強制純白背景
+ * 最終完美版：精準捕捉眼鏡與髮型特徵 ＋ 純白背景強制令
  */
 require('dotenv').config();
 const express = require('express');
@@ -17,7 +17,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI Photo Booth Backend is running (BLIP Vision + White BG).");
+    res.status(200).send("🟢 AI Photo Booth Backend is running (LLaVA Vision + White BG).");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -25,25 +25,29 @@ app.post('/api/generate-lineart', async (req, res) => {
         const { image } = req.body;
         if (!image) return res.status(400).json({ error: '未提供圖片資料' });
 
-        console.log("🚀 [步驟一] 啟動 Replicate BLIP 視覺模型分析照片...");
+        console.log("🚀 [步驟一] 啟動 Replicate LLaVA 視覺模型分析照片...");
 
-        // 🌟 換成最穩定、絕不罷工的 Salesforce BLIP 視覺模型
-        const blipModel = "salesforce/blip:2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d6940c61";
+        // 🌟 使用聰明的 LLaVA 模型 (帶有穩定的版本號防呆)
+        const llavaModel = "yorickvp/llava-13b:e2721573d8c313139360852ef4efb15ca50de99e39e0ad697b764d0bc904090b";
         
-        // 防呆備用詞 (直接預設為女性，萬一出錯至少性別是對的)
+        // 🌟 嚴格命令：強迫 AI 必須回答髮型與是否戴眼鏡
+        const visionPrompt = "Describe this person's face concisely. You MUST include: 1. Gender (woman/man), 2. Hair (e.g., long hair tied back, short hair), 3. Glasses (say EXACTLY 'wearing glasses' or 'no glasses'). Reply in a short comma-separated list.";
+
+        // 防呆備案
         let description = "a woman looking at the camera"; 
 
         try {
-            // 呼叫 BLIP，它會自動回傳如 "a woman wearing glasses" 的精準描述
-            const blipOutput = await replicate.run(blipModel, {
+            const llavaOutput = await replicate.run(llavaModel, {
                 input: {
-                    image: image,
-                    task: "image_captioning"
+                    image: image, 
+                    prompt: visionPrompt,
+                    max_tokens: 30,
+                    temperature: 0.2 // 讓 AI 回答更精準
                 }
             });
             
-            if (blipOutput) {
-                description = String(blipOutput).trim();
+            if (llavaOutput) {
+                description = Array.isArray(llavaOutput) ? llavaOutput.join("").trim() : String(llavaOutput).trim();
                 console.log("✅ 視覺解析成功:", description);
             }
         } catch (visionError) {
@@ -53,10 +57,9 @@ app.post('/api/generate-lineart', async (req, res) => {
         // 🌟 步驟二：畫圖提示詞強化純白底色
         const triggerWord = process.env.REPLICATE_TRIGGER_WORD || "TOK_CUTELINE-SDXL";
         
-        // 針對 SDXL 加入極端強烈的白底指令 (pure white background, isolated on white canvas)
         const assembledPrompt = `${triggerWord}, ${description}, minimalist black and white line art portrait, pure solid white background, #FFFFFF background, isolated on solid white canvas, clear black lines, laser engraving design.`;
         
-        // 🌟 負向提示詞：死命封殺所有灰色、陰影與漸層
+        // 🌟 負向提示詞：死命封殺所有灰色與陰影
         const negativePrompt = "grey background, gray background, dark background, off-white, shadow, shading, gradient, colored background, skin tone, realistic, 3d, messy lines, text, watermark, signature";
 
         console.log("🚀 [步驟三] 呼叫 Replicate SDXL 進行雷雕線稿繪製...");
@@ -73,7 +76,7 @@ app.post('/api/generate-lineart', async (req, res) => {
                     height: 1024,
                     scheduler: "K_EULER",
                     num_outputs: 1,
-                    guidance_scale: 8.5, // 拉高服從度，強迫它必須聽從「純白底色」的指令
+                    guidance_scale: 8.5, // 拉高服從度，確保特徵(眼鏡)與白底都被畫出來
                     apply_watermark: false,
                     num_inference_steps: 30
                 }
