@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Render 部署版)
- * 最終完美版：精準捕捉眼鏡與髮型特徵 ＋ 純白背景強制令
+ * 升級版：使用 LLaVA 1.5 結構化特徵解析 + 可愛漫畫手繪雷雕咒語
  */
 require('dotenv').config();
 const express = require('express');
@@ -17,7 +17,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI Photo Booth Backend is running (LLaVA Vision + White BG).");
+    res.status(200).send("🟢 AI Photo Booth Backend is running (Manga Style Engrave Ready).");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -25,44 +25,76 @@ app.post('/api/generate-lineart', async (req, res) => {
         const { image } = req.body;
         if (!image) return res.status(400).json({ error: '未提供圖片資料' });
 
-        console.log("🚀 [步驟一] 啟動 Replicate LLaVA 視覺模型分析照片...");
+        console.log("🚀 [步驟一] 啟動 Replicate LLaVA v1.5 精密視覺解析...");
 
-        // 🌟 使用聰明的 LLaVA 模型 (帶有穩定的版本號防呆)
-        const llavaModel = "yorickvp/llava-13b:e2721573d8c313139360852ef4efb15ca50de99e39e0ad697b764d0bc904090b";
+        const visionModel = "yorickvp/llava-v1.5-13b:2facb4a474a0462c15041b78b1ad70952ea46b52368eb2d2cebce45ce8636eca";
         
-        // 🌟 嚴格命令：強迫 AI 必須回答髮型與是否戴眼鏡
-        const visionPrompt = "Describe this person's face concisely. You MUST include: 1. Gender (woman/man), 2. Hair (e.g., long hair tied back, short hair), 3. Glasses (say EXACTLY 'wearing glasses' or 'no glasses'). Reply in a short comma-separated list.";
+        // 🌟 核心修正：強制視覺大腦以 Key-Value 格式條列特徵
+        const visionPrompt = `Analyze this person's face carefully and reply EXACTLY with these 7 lines. Do not add any extra greeting, markdown formatting, or bullet points:
+GENDER: (woman or man)
+EYES: (large or small)
+HAIR: (describe length, hairstyle, bangs, parting, straight or wavy, e.g., "long straight hair with middle parting" or "boy style short hair with neat bangs")
+NECKLINE: (crew neck, v-neck, square neck, turtleneck, or collared shirt)
+GLASSES: (wearing glasses or no glasses)
+EARRINGS: (wearing earrings or no earrings)
+NECKLACE: (wearing a necklace or no necklace)`;
 
-        // 防呆備案
-        let description = "a woman looking at the camera"; 
+        // 預設特徵防護罩
+        let rawFeatures = "GENDER: woman\nEYES: large\nHAIR: long hair\nNECKLINE: crew neck\nGLASSES: no glasses\nEARRINGS: no earrings\nNECKLACE: no necklace";
 
         try {
-            const llavaOutput = await replicate.run(llavaModel, {
+            const visionOutput = await replicate.run(visionModel, {
                 input: {
                     image: image, 
                     prompt: visionPrompt,
-                    max_tokens: 30,
-                    temperature: 0.2 // 讓 AI 回答更精準
+                    max_tokens: 150,
+                    temperature: 0.1
                 }
             });
             
-            if (llavaOutput) {
-                description = Array.isArray(llavaOutput) ? llavaOutput.join("").trim() : String(llavaOutput).trim();
-                console.log("✅ 視覺解析成功:", description);
+            if (visionOutput) {
+                rawFeatures = Array.isArray(visionOutput) ? visionOutput.join("").trim() : String(visionOutput).trim();
+                console.log("✅ 視覺精密解析結果:\n", rawFeatures);
             }
         } catch (visionError) {
             console.warn("⚠️ 視覺解析異常，啟用備用特徵:", visionError.message);
         }
 
-        // 🌟 步驟二：畫圖提示詞強化純白底色
+        // 🌟 步驟二：解析 Key-Value 文字並代入您的客製化雷雕咒語
+        const lines = rawFeatures.split('\n');
+        const parsed = {
+            gender: "woman",
+            eyes: "large",
+            hair: "long straight hair",
+            neckline: "crew neck",
+            glasses: "no glasses",
+            earrings: "no earrings",
+            necklace: "no necklace"
+        };
+
+        lines.forEach(line => {
+            const parts = line.split(':');
+            if (parts.length >= 2) {
+                const key = parts[0].trim().toUpperCase();
+                const value = parts.slice(1).join(':').trim();
+                if (key === "GENDER") parsed.gender = value;
+                if (key === "EYES") parsed.eyes = value;
+                if (key === "HAIR") parsed.hair = value;
+                if (key === "NECKLINE") parsed.neckline = value;
+                if (key === "GLASSES") parsed.glasses = value;
+                if (key === "EARRINGS") parsed.earrings = value;
+                if (key === "NECKLACE") parsed.necklace = value;
+            }
+        });
+
+        // 🌟 步驟三：組裝您的客製化可愛漫畫雷雕提示詞
         const triggerWord = process.env.REPLICATE_TRIGGER_WORD || "TOK_CUTELINE-SDXL";
         
-        const assembledPrompt = `${triggerWord}, ${description}, minimalist black and white line art portrait, pure solid white background, #FFFFFF background, isolated on solid white canvas, clear black lines, laser engraving design.`;
+        const assembledPrompt = `${triggerWord}, a high-contrast black and white minimalist hand-drawn manga and portrait illustration, cute manga aesthetic. Minimalist style, bold and powerful clean lines, high contrast monochrome (black ink on pure white paper). Laser engraving ready, pure white background, pure black lines, 1024x1024 resolution. Bold clean black lines, no thin lines, no sketchy lines, no gradients, no complex shading. Half-body manga portrait, simple yet expressive facial features. Eyes are extremely ${parsed.eyes}, round, highly expressive, shoujo manga style eyes with large circular highlights. Hair is ${parsed.hair}. Hair and clothing area (${parsed.neckline}) are filled with solid black ink blocks, clean sharp outlines. Details: charming simple smile, ${parsed.glasses}, ${parsed.earrings}, ${parsed.necklace}.`;
         
-        // 🌟 負向提示詞：死命封殺所有灰色與陰影
         const negativePrompt = "grey background, gray background, dark background, off-white, shadow, shading, gradient, colored background, skin tone, realistic, 3d, messy lines, text, watermark, signature";
 
-        console.log("🚀 [步驟三] 呼叫 Replicate SDXL 進行雷雕線稿繪製...");
+        console.log("🚀 [步驟四] 呼叫 Replicate SDXL 繪製極簡可愛漫畫線稿...");
         console.log("👉 最終咒語:", assembledPrompt);
         
         const modelVersion = process.env.REPLICATE_MODEL_VERSION; 
@@ -76,7 +108,7 @@ app.post('/api/generate-lineart', async (req, res) => {
                     height: 1024,
                     scheduler: "K_EULER",
                     num_outputs: 1,
-                    guidance_scale: 8.5, // 拉高服從度，確保特徵(眼鏡)與白底都被畫出來
+                    guidance_scale: 8.5,
                     apply_watermark: false,
                     num_inference_steps: 30
                 }
@@ -89,7 +121,7 @@ app.post('/api/generate-lineart', async (req, res) => {
         return res.status(200).json({ 
             success: true, 
             resultUrl: finalImageUrl,
-            extractedFeatures: description 
+            extractedFeatures: rawFeatures 
         });
 
     } catch (error) {
@@ -101,3 +133,5 @@ app.post('/api/generate-lineart', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 AI Photo Booth Backend 啟動於 PORT: ${PORT}`);
 });
+
+現在只要將 GitHub 上的後端更新，並等 Render 亮綠燈部署成功後，再用右側的 Canvas 「快速預覽與除錯器」上傳照片測試，您就能看到完美的動態雷雕特徵解析囉！
