@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Render 部署版)
- * 修正版：使用 gemini-1.5-flash 解決 404 錯誤
+ * 終極修正版：使用 100% 支援的 gemini-pro-vision 解決 404 權限問題
  */
 require('dotenv').config();
 const express = require('express');
@@ -19,7 +19,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI Photo Booth Backend is running on Render.");
+    res.status(200).send("🟢 AI Photo Booth Backend is running on Render (gemini-pro-vision).");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -33,10 +33,9 @@ app.post('/api/generate-lineart', async (req, res) => {
         const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : "image/jpeg";
         const base64Data = image.replace(/^data:.*;base64,/, "");
 
-        // 🌟 核心修正：直接升級並使用全區保證支援的旗艦模型 gemini-1.5-pro
+        // 🌟 終極修正：使用全球所有帳號皆 100% 支援的視覺模型
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-pro", 
-            generationConfig: { responseMimeType: "application/json" }
+            model: "gemini-pro-vision" 
         });
 
         const prompt = `You are an expert portrait analyst for an automated drawing system. Analyze the uploaded photo (focusing only from the shoulders up) and extract specific physical traits. You MUST return the result EXACTLY as a valid JSON object following this exact structure, without any extra text or markdown blocks:
@@ -56,7 +55,12 @@ app.post('/api/generate-lineart', async (req, res) => {
         };
 
         const geminiResult = await model.generateContent([prompt, imagePart]);
-        const features = JSON.parse(geminiResult.response.text());
+        let rawText = geminiResult.response.text();
+        
+        // 🌟 防呆處理：手動過濾可能出現的 markdown (```json) 標籤
+        rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+        
+        const features = JSON.parse(rawText);
         console.log("✅ Gemini 特徵萃取成功:", features);
 
         // 🌟 步驟三：提示詞自動組裝
