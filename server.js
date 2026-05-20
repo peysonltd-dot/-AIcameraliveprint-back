@@ -28,22 +28,28 @@ app.post('/api/generate-lineart', async (req, res) => {
 
         console.log("🚀 [步驟一] 啟動 Replicate LLaVA 視覺模型分析照片...");
 
-        // 🌟 改變策略：使用 Replicate 上的 LLaVA 開源視覺模型來取代 Gemini
-        const llavaModel = "yorickvp/llava-13b:b5f6212d032508382d61ff00469ddda3e32fd8a0e75dc3b791557007a33e2133";
+        // 🌟 修正：移除舊版寫死的亂碼版本號，讓系統自動抓取最新版
+        const llavaModel = "yorickvp/llava-13b";
         const visionPrompt = "Describe the person in this image concisely: gender, age vibe, hair style, expression, and clothing neckline. Use keywords separated by commas.";
 
-        // Replicate 原生支援前端傳來的 Data URI Base64 格式
-        const llavaOutput = await replicate.run(llavaModel, {
-            input: {
-                image: image, 
-                prompt: visionPrompt,
-                max_tokens: 50
-            }
-        });
+        // 預設特徵：萬一視覺模型秀逗，以此作為備案，保證一定能畫出圖
+        let description = "a person looking at the camera";
 
-        // LLaVA 回傳的是字串陣列，將其合併成單一字串
-        const description = llavaOutput.join("").trim();
-        console.log("✅ 視覺解析成功:", description);
+        try {
+            // Replicate 原生支援前端傳來的 Data URI Base64 格式
+            const llavaOutput = await replicate.run(llavaModel, {
+                input: {
+                    image: image, 
+                    prompt: visionPrompt,
+                    max_tokens: 50
+                }
+            });
+            // LLaVA 回傳的是字串陣列，將其合併成單一字串
+            description = llavaOutput.join("").trim();
+            console.log("✅ 視覺解析成功:", description);
+        } catch (visionError) {
+            console.warn("⚠️ 視覺模型解析失敗，啟動備用特徵 (不影響後續畫圖):", visionError.message);
+        }
 
         // 🌟 步驟二：提示詞自動組裝
         const triggerWord = process.env.REPLICATE_TRIGGER_WORD || "TOK_CUTELINE-SDXL";
@@ -54,6 +60,7 @@ app.post('/api/generate-lineart', async (req, res) => {
         console.log("🚀 [步驟三] 呼叫 Replicate SDXL 進行雷雕線稿繪製...");
         console.log("👉 最終咒語:", assembledPrompt);
         
+        // 呼叫您專屬客製化訓練的 SDXL 模型
         const modelVersion = process.env.REPLICATE_MODEL_VERSION; 
         const output = await replicate.run(
             modelVersion,
