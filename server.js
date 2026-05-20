@@ -33,9 +33,9 @@ app.post('/api/generate-lineart', async (req, res) => {
         const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : "image/jpeg";
         const base64Data = image.replace(/^data:.*;base64,/, "");
 
-        // 🌟 核心修正：使用最穩定的模型名稱 gemini-1.5-flash，徹底解決 404 錯誤
+        // 🌟 核心修正：直接升級並使用全區保證支援的旗艦模型 gemini-1.5-pro
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash", 
+            model: "gemini-1.5-pro", 
             generationConfig: { responseMimeType: "application/json" }
         });
 
