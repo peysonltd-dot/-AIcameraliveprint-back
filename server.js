@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Render 部署版)
- * 修正版：移除底部所有說明文字，避免 SyntaxError 語法錯誤
+ * 精密特徵微調版：精準捕捉馬尾、衣服無吊帶、嘴巴微表情細節、金屬/透明細框眼鏡
  */
 require('dotenv').config();
 const express = require('express');
@@ -17,7 +17,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI Photo Booth Backend is running (Manga Style Engrave Ready).");
+    res.status(200).send("🟢 AI Photo Booth Backend is running (Ultimate Manga Detail Ready).");
 });
 
 app.post('/api/generate-lineart', async (req, res) => {
@@ -29,24 +29,26 @@ app.post('/api/generate-lineart', async (req, res) => {
 
         const visionModel = "yorickvp/llava-v1.5-13b:2facb4a474a0462c15041b78b1ad70952ea46b52368eb2d2cebce45ce8636eca";
         
-        const visionPrompt = `Analyze this person's face carefully and reply EXACTLY with these 7 lines. Do not add any extra greeting, markdown formatting, or bullet points:
+        // 🌟 升級版指令：強制要求辨識馬尾(Tied hair/Ponytail)、衣服樣式(嚴禁吊帶)、嘴巴細節、與細框透明眼鏡
+        const visionPrompt = `Analyze this person's face and clothing carefully. Reply EXACTLY with these 8 lines. Do not add any extra greeting, markdown formatting, or bullet points:
 GENDER: (woman or man)
 EYES: (large or small)
-HAIR: (describe length, hairstyle, bangs, parting, straight or wavy, e.g., "long straight hair with middle parting" or "boy style short hair with neat bangs")
-NECKLINE: (crew neck, v-neck, square neck, turtleneck, or collared shirt)
-GLASSES: (wearing glasses or no glasses)
+HAIR: (describe hair: e.g., 'long hair tied in a ponytail to the side', 'tied back ponytail hair', 'short hair', 'long loose hair', 'bangs', 'parting')
+MOUTH: (describe exact mouth state: 'subtle smile', 'pouting lips', 'closed mouth', 'toothy smile', 'big laugh')
+CLOTHING: (describe the exact top clothing, e.g. 'simple plain brown t-shirt' or 'v-neck t-shirt'. Strictly state 'no overalls, no suspender straps')
+GLASSES: (look extremely closely for clear, transparent, thin metallic, or dark-framed glasses; say 'wearing glasses' or 'no glasses')
 EARRINGS: (wearing earrings or no earrings)
 NECKLACE: (wearing a necklace or no necklace)`;
 
         // 預設特徵防護罩
-        let rawFeatures = "GENDER: woman\nEYES: large\nHAIR: long hair\nNECKLINE: crew neck\nGLASSES: no glasses\nEARRINGS: no earrings\nNECKLACE: no necklace";
+        let rawFeatures = "GENDER: woman\nEYES: large\nHAIR: ponytail\nMOUTH: subtle smile\nCLOTHING: plain crewneck t-shirt, no overalls, no straps\nGLASSES: wearing glasses\nEARRINGS: no earrings\nNECKLACE: no necklace";
 
         try {
             const visionOutput = await replicate.run(visionModel, {
                 input: {
                     image: image, 
                     prompt: visionPrompt,
-                    max_tokens: 150,
+                    max_tokens: 180,
                     temperature: 0.1
                 }
             });
@@ -64,9 +66,10 @@ NECKLACE: (wearing a necklace or no necklace)`;
         const parsed = {
             gender: "woman",
             eyes: "large",
-            hair: "long straight hair",
-            neckline: "crew neck",
-            glasses: "no glasses",
+            hair: "ponytail hair",
+            mouth: "subtle smile",
+            clothing: "plain crewneck t-shirt, no overalls, no straps",
+            glasses: "wearing glasses",
             earrings: "no earrings",
             necklace: "no necklace"
         };
@@ -79,19 +82,22 @@ NECKLACE: (wearing a necklace or no necklace)`;
                 if (key === "GENDER") parsed.gender = value;
                 if (key === "EYES") parsed.eyes = value;
                 if (key === "HAIR") parsed.hair = value;
-                if (key === "NECKLINE") parsed.neckline = value;
+                if (key === "MOUTH") parsed.mouth = value;
+                if (key === "CLOTHING") parsed.clothing = value;
                 if (key === "GLASSES") parsed.glasses = value;
                 if (key === "EARRINGS") parsed.earrings = value;
                 if (key === "NECKLACE") parsed.necklace = value;
             }
         });
 
-        // 組裝客製化可愛漫畫雷雕提示詞
+        // 🌟 步驟三：組裝高對比度極簡手繪可愛漫畫雷雕提示詞
         const triggerWord = process.env.REPLICATE_TRIGGER_WORD || "TOK_CUTELINE-SDXL";
         
-        const assembledPrompt = `${triggerWord}, a high-contrast black and white minimalist hand-drawn manga and portrait illustration, cute manga aesthetic. Minimalist style, bold and powerful clean lines, high contrast monochrome (black ink on pure white paper). Laser engraving ready, pure white background, pure black lines, 1024x1024 resolution. Bold clean black lines, no thin lines, no sketchy lines, no gradients, no complex shading. Half-body manga portrait, simple yet expressive facial features. Eyes are extremely ${parsed.eyes}, round, highly expressive, shoujo manga style eyes with large circular highlights. Hair is ${parsed.hair}. Hair and clothing area (${parsed.neckline}) are filled with solid black ink blocks, clean sharp outlines. Details: charming simple smile, ${parsed.glasses}, ${parsed.earrings}, ${parsed.necklace}.`;
+        // 將 "no overalls, no suspender straps" 深度嵌入咒語，強迫排除吊帶與背帶
+        const assembledPrompt = `${triggerWord}, a high-contrast black and white minimalist hand-drawn manga and portrait illustration, cute manga aesthetic. Minimalist style, bold and powerful clean lines, high contrast monochrome (black ink on pure white paper). Laser engraving ready, pure white background, pure black lines, 1024x1024 resolution. Bold clean black lines, no thin lines, no sketchy lines, no gradients, no complex shading. Half-body manga portrait, simple yet expressive facial features. Eyes are extremely ${parsed.eyes}, round, highly expressive, shoujo manga style eyes with large circular highlights. Hair is ${parsed.hair}, ponytail. Mouth is a beautiful ${parsed.mouth}. Clothing is ${parsed.clothing}, simple t-shirt, strictly no overalls, no suspenders, no shoulder straps, no overalls straps. Hair and clothing area are filled with solid black ink blocks, clean sharp outlines. Details: ${parsed.glasses}, ${parsed.earrings}, ${parsed.necklace}.`;
         
-        const negativePrompt = "grey background, gray background, dark background, off-white, shadow, shading, gradient, colored background, skin tone, realistic, 3d, messy lines, text, watermark, signature";
+        // 🌟 負向提示詞：最高強度禁用吊帶、肩帶、背帶、以及所有陰影與漸層
+        const negativePrompt = "overalls, suspenders, dungarees, shoulder straps, backpack straps, overalls straps, grey background, gray background, dark background, off-white, shadow, shading, gradient, colored background, skin tone, realistic, 3d, messy lines, text, watermark, signature";
 
         console.log("🚀 [步驟四] 呼叫 Replicate SDXL 繪製極簡可愛漫畫線稿...");
         console.log("👉 最終咒語:", assembledPrompt);
@@ -107,7 +113,7 @@ NECKLACE: (wearing a necklace or no necklace)`;
                     height: 1024,
                     scheduler: "K_EULER",
                     num_outputs: 1,
-                    guidance_scale: 8.5,
+                    guidance_scale: 9.0, // 進一步拉高服從度，確保排除吊帶並畫出正確髮型與嘴巴
                     apply_watermark: false,
                     num_inference_steps: 30
                 }
