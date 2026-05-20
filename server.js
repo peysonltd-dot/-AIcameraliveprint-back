@@ -52,8 +52,8 @@ app.post('/api/generate-lineart', async (req, res) => {
                     
                     // 🌟 終極 AB 測試後的「黃金交叉點」參數！
                     // 確保能留下原本的透明眼鏡與馬尾，同時套上可愛塗鴉風格，不產生泥濘感。
-                    prompt_strength: 0.68,   // 不高不低，剛好留住眼鏡與五官輪廓
-                    guidance_scale: 3.5,     // 調低老闆固執度，讓風格融合得更自然、不生硬
+                    prompt_strength: 0.65,   // 不高不低，剛好留住眼鏡與五官輪廓
+                    guidance_scale: 15,     // 調低老闆固執度，讓風格融合得更自然、不生硬
                     lora_scale: 0.8,         // 維持 0.8 確保豆豆眼特徵穩定出現
                     
                     num_inference_steps: 30  // 30步對於機台出圖速度與品質是最佳平衡
