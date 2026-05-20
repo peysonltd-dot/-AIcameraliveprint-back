@@ -1,4 +1,8 @@
-// server.js
+/**
+ * AI 互動雷雕拍照系統 - 後端 API (Render 部署版)
+ * 工作流: 接收照片 -> Gemini 解析特徵 -> 組裝 Prompt -> Replicate SDXL 繪圖
+ */
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -6,7 +10,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Replicate = require('replicate');
 
 const app = express();
-const PORT = process.env.PORT || 8080; // Cloud Run 預設推薦 8080
+// Render 預設通常分配 PORT 10000，這裡讓環境變數優先
+const PORT = process.env.PORT || 10000; 
 
 // Middleware: 允許跨域請求與加大 Payload 限制 (處理 Base64 照片)
 app.use(cors());
@@ -19,7 +24,7 @@ const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 // 系統狀態檢查端點
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 AI Photo Booth Backend (Gemini + Replicate) is running.");
+    res.status(200).send("🟢 AI Photo Booth Backend (Gemini + SDXL) is running on Render.");
 });
 
 // 核心生成端點
@@ -31,17 +36,17 @@ app.post('/api/generate-lineart', async (req, res) => {
         console.log("🚀 [步驟一] 接收照片，準備 Gemini 視覺解析...");
 
         // 🌟 處理 Base64 字串 (Gemini 要求純 Base64，不含 Data URI 前綴)
-        // 假設前端傳來的是 data:image/jpeg;base64,...
         const mimeTypeMatch = image.match(/^data:(image\/\w+);base64,/);
         const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : "image/jpeg";
-        const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+        // 移除前綴，取得乾淨的 base64 資料
+        const base64Data = image.replace(/^data:.*;base64,/, "");
 
         // ==========================================
-        // 🌟 步驟二：Gemini 1.5 Flash 視覺解析 (強制 JSON 輸出)
+        // 🌟 步驟二：Gemini 視覺解析 (強制 JSON 輸出)
+        // 💡 修正 404 錯誤：加上 -latest 確保能找到最新的模型版本
         // ==========================================
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            // 強制回傳 JSON 格式
+            model: "gemini-1.5-flash-latest", 
             generationConfig: { responseMimeType: "application/json" }
         });
 
@@ -71,7 +76,8 @@ app.post('/api/generate-lineart', async (req, res) => {
         const triggerWord = process.env.REPLICATE_TRIGGER_WORD || "TOK_CUTELINE-SDXL";
         const assembledPrompt = `${triggerWord}, a ${features.age_vibe} person with a ${features.face_shape}. ${features.hair_details}. The person has a ${features.expression} and ${features.pose}, wearing a ${features.clothing_neckline}. Glasses: ${features.glasses_type}. Accessories: ${features.accessories}. Minimalist black and white line art portrait, doodle style, simple dots for eyes, pure white background, pure lines, no shading, flat vector graphic, laser engraving ready.`;
         
-        const negativePrompt = "color, photorealistic, realistic face, detailed eyes, shading, gradient, texture, complex background, 3d, realistic lips, solid black fills";
+        // 負面提示詞：防護黑炭、寫實陰影
+        const negativePrompt = "color, photorealistic, realistic face, detailed eyes, shading, gradient, texture, complex background, 3d, realistic lips, solid black fills, messy lines";
 
         console.log("🚀 [步驟四] 呼叫 Replicate SDXL 進行文生圖...");
         console.log("👉 組裝咒語:", assembledPrompt);
@@ -79,6 +85,7 @@ app.post('/api/generate-lineart', async (req, res) => {
         // ==========================================
         // 🌟 步驟四：Replicate 圖像生成 (Txt2Img)
         // ==========================================
+        // 從環境變數讀取您剛剛在 Render 設定的 Model ID
         const modelVersion = process.env.REPLICATE_MODEL_VERSION; 
         
         const output = await replicate.run(
@@ -98,13 +105,14 @@ app.post('/api/generate-lineart', async (req, res) => {
             }
         );
 
+        // Replicate 回傳為陣列，取第一張圖
         const finalImageUrl = Array.isArray(output) ? output[0] : output;
         
-        console.log("✅ 圖像生成成功！");
+        console.log("✅ 圖像生成成功！URL:", finalImageUrl);
         return res.status(200).json({ 
             success: true, 
             resultUrl: finalImageUrl,
-            extractedFeatures: features // 方便前端除錯或展示
+            extractedFeatures: features // 回傳給前端展示使用
         });
 
     } catch (error) {
