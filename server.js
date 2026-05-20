@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Render 部署版)
- * 升級版：使用 LLaVA 1.5 結構化特徵解析 + 可愛漫畫手繪雷雕咒語
+ * 修正版：移除底部所有說明文字，避免 SyntaxError 語法錯誤
  */
 require('dotenv').config();
 const express = require('express');
@@ -29,7 +29,6 @@ app.post('/api/generate-lineart', async (req, res) => {
 
         const visionModel = "yorickvp/llava-v1.5-13b:2facb4a474a0462c15041b78b1ad70952ea46b52368eb2d2cebce45ce8636eca";
         
-        // 🌟 核心修正：強制視覺大腦以 Key-Value 格式條列特徵
         const visionPrompt = `Analyze this person's face carefully and reply EXACTLY with these 7 lines. Do not add any extra greeting, markdown formatting, or bullet points:
 GENDER: (woman or man)
 EYES: (large or small)
@@ -60,7 +59,7 @@ NECKLACE: (wearing a necklace or no necklace)`;
             console.warn("⚠️ 視覺解析異常，啟用備用特徵:", visionError.message);
         }
 
-        // 🌟 步驟二：解析 Key-Value 文字並代入您的客製化雷雕咒語
+        // 解析 Key-Value 特徵
         const lines = rawFeatures.split('\n');
         const parsed = {
             gender: "woman",
@@ -87,7 +86,7 @@ NECKLACE: (wearing a necklace or no necklace)`;
             }
         });
 
-        // 🌟 步驟三：組裝您的客製化可愛漫畫雷雕提示詞
+        // 組裝客製化可愛漫畫雷雕提示詞
         const triggerWord = process.env.REPLICATE_TRIGGER_WORD || "TOK_CUTELINE-SDXL";
         
         const assembledPrompt = `${triggerWord}, a high-contrast black and white minimalist hand-drawn manga and portrait illustration, cute manga aesthetic. Minimalist style, bold and powerful clean lines, high contrast monochrome (black ink on pure white paper). Laser engraving ready, pure white background, pure black lines, 1024x1024 resolution. Bold clean black lines, no thin lines, no sketchy lines, no gradients, no complex shading. Half-body manga portrait, simple yet expressive facial features. Eyes are extremely ${parsed.eyes}, round, highly expressive, shoujo manga style eyes with large circular highlights. Hair is ${parsed.hair}. Hair and clothing area (${parsed.neckline}) are filled with solid black ink blocks, clean sharp outlines. Details: charming simple smile, ${parsed.glasses}, ${parsed.earrings}, ${parsed.necklace}.`;
@@ -133,5 +132,3 @@ NECKLACE: (wearing a necklace or no necklace)`;
 app.listen(PORT, () => {
     console.log(`🚀 AI Photo Booth Backend 啟動於 PORT: ${PORT}`);
 });
-
-現在只要將 GitHub 上的後端更新，並等 Render 亮綠燈部署成功後，再用右側的 Canvas 「快速預覽與除錯器」上傳照片測試，您就能看到完美的動態雷雕特徵解析囉！
