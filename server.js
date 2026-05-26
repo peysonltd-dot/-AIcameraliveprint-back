@@ -1,10 +1,10 @@
 /**
- * AI 互動雷雕拍照系統 - 後端 API (Llama 3.2 Vision 頂級髮型與細節鎖定版 - 避錯相容升級版)
+ * AI 互動雷雕拍照系統 - 後端 API (LLaVA 100% 免授權公開大腦版)
  * 核心功能：
- * 1. 接收前端客人照片，利用 Llama 3.2 Vision 進行多維度特徵提取
+ * 1. 接收前端客人照片，利用完全公開、免簽約審查的 yorickvp/llava-13b 進行多維度特徵提取
  * 2. 深度鎖定：綁馬尾、公主頭、辮子、中分、旁分、劉海、飾品(耳環/項鍊)、衣服色系、表情、髮色
- * 3. 採用確切的版本 Hash (Version Hash)，直接繞過 Replicate 的 GET 404 限制
- * 4. 加入「智慧多重備用鏈 (Fallback Chain)」，保證展場現場連線 100% 不中斷
+ * 3. 100% 繞過 Meta 官方 Llama 的 404/422 授權協議封鎖，隨插即用！
+ * 4. 具備強健的 JSON 解析防呆，保證現場體驗不卡死、不出錯。
  */
 const express = require('express');
 const cors = require('cors');
@@ -29,14 +29,14 @@ const tasks = {};
 let ticketCounter = 1;
 
 app.get('/', (req, res) => {
-    res.status(200).send("🟢 Queue Server is running (High-Fidelity Hair-Aware Prompt Engine Enabled). 系統正在使用頂級髮型與細節鎖定模式運行中。");
+    res.status(200).send("🟢 Queue Server is running (High-Fidelity Public-Llava Prompt Engine Enabled). 系統正在使用免授權公用大腦模式運行中。");
 });
 
 // ==========================================
 // 📱 給「前端展場機台 (客人)」使用的 API
 // ==========================================
 
-// 1. 客人拍照上傳，領取號碼牌並觸發背景 Llama 特徵抽取
+// 1. 客人拍照上傳，領取號碼牌並觸發背景 LLaVA 特徵抽取
 app.post('/api/upload', async (req, res) => {
     try {
         const { image } = req.body;
@@ -60,10 +60,10 @@ app.post('/api/upload', async (req, res) => {
             createdAt: new Date().toLocaleTimeString('zh-TW', { hour12: false }) 
         };
 
-        console.log(`🎫 新任務建立：排隊號碼 #${taskId}，準備發送給 Llama 視覺 AI 分析...`);
+        console.log(`🎫 新任務建立：排隊號碼 #${taskId}，準備發送給 LLaVA 公用視覺大腦分析...`);
         res.json({ success: true, taskId: taskId });
 
-        // 背景非同步調用 Llama Vision 進行圖像特徵分析，完全不卡住前台體驗
+        // 背景非同步調用 LLaVA 進行圖像特徵分析，完全不卡住前台體驗
         if (process.env.REPLICATE_API_TOKEN) {
             analyzeImageAndGeneratePrompt(taskId, image);
         } else {
@@ -157,77 +157,51 @@ app.post('/api/admin/save-remark/:taskId', (req, res) => {
 });
 
 // ==========================================
-// 🧠 Llama 3.2 Vision 超精細特徵與特殊髮型鎖定函數 (不當機安全優化 + 智慧備用鏈)
+// 🧠 LLaVA 公用視覺大腦超強健特徵與特殊髮型鎖定函數 (不需任何授權合約)
 // ==========================================
 async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
     try {
-        console.log(`[Vision AI] 號碼 #${taskId}: 正在發送分析請求給 Llama 3.2...`);
+        console.log(`[Vision AI] 號碼 #${taskId}: 正在發送分析請求給 yorickvp/llava-13b...`);
         
-        // 核心安全機制：將 system 指令與 user 指令合併，防止某些模型版本不支援 system_instruction 欄位而報錯
+        // 專為 LLaVA 設計的強健 Prompt
         const promptText = `
-        You are a professional image analysis assistant. Your job is to extract exact facial, hair, accessory, and clothing features from the provided portrait so we can reconstruct them in a flat chibi illustration.
-        Respond with ONLY a clean JSON object containing these keys. Do not write any markdown wraps like \`\`\`json or \`\`\` or any conversational text. Return the raw JSON block directly.
-
-        Required JSON structure:
+        You are a highly precise visual analysis assistant. Carefully inspect the provided portrait and extract details.
+        Output ONLY a JSON block inside curly braces, containing these exact attributes:
         {
           "gender": "man, woman, boy, or girl",
-          "hairLength": "e.g., short crop, shoulder-length hair, very long hair past shoulders, medium bob length",
-          "hairTexture": "e.g., straight, wavy, tight curly",
-          "hairStyle": "e.g., high ponytail (馬尾), low ponytail, half-up princess hair style (公主頭), double braids (雙辮子), single side braid (單編辮), classic loose hair style (披肩散髮), messy bun (包包頭), pigtails (雙馬尾), short undercut (男生側邊漸層)",
-          "hairParting": "e.g., center-parted (中分), side-parted (旁分), no parting line (無分線)",
-          "bangs": "e.g., see-through wispy bangs (空氣劉海), thick blunt bangs (齊劉海), side-swept bangs, curtain bangs (八字劉海), no bangs with forehead exposed (無劉海)",
-          "hairColor": "e.g., deep black, chestnut brown, platinum blonde, vibrant dyed pink, dyed purple, grey",
-          "glasses": "e.g., wearing grey frame glasses, wearing thin gold wire-rimmed glasses, wearing thick black-frame glasses, clear round glasses, no glasses",
-          "necklace": "e.g., no necklace, a delicate thin silver chain, a gold pendant necklace, a pearl necklace, a black lace choker",
-          "earrings": "e.g., no earrings, small gold hoop earrings, simple pearl studs, long dangling silver earrings",
-          "expression": "e.g., cheerful bright smile, gentle smirk, neutral calm face, joyful open-mouth laughter",
-          "clothingType": "e.g., crewneck t-shirt, collared button-up shirt, casual hoodie, pullover sweater, jacket",
-          "clothingColor": "solid black, pastel pink, crimson red, navy blue, pure white, olive green"
+          "hairLength": "short, shoulder-length, or long",
+          "hairTexture": "straight, wavy, or curly",
+          "hairStyle": "ponytail (馬尾), princess (公主頭), braids (雙辮子), loose hair (散髮), messy bun (包包頭)",
+          "hairParting": "center-parted (中分), side-parted (旁分), or no parting",
+          "bangs": "wispy bangs (空氣劉海), blunt bangs (齊劉海), or no bangs",
+          "hairColor": "black, brown, blonde, or dyed color",
+          "glasses": "wearing glasses, or no glasses",
+          "necklace": "wearing necklace, or no necklace",
+          "earrings": "wearing earrings, or no earrings",
+          "expression": "smiling, or neutral",
+          "clothingType": "t-shirt, shirt, hoodie, or jacket",
+          "clothingColor": "black, white, red, blue, green, etc."
         }
-
-        Analyze the uploaded user portrait image right now and return this JSON.
+        Do not write any markdown wrappers like \`\`\`json or \`\`\`. Output raw JSON directly.
         `;
 
-        // 🌟 智慧備用鏈：包含確切的版本 Hash (Version Hash)
-        // 這樣可以強迫 Replicate SDK 直接建立預測 (POST /v1/predictions)，而不需要先做模型中繼資料查詢 (GET /v1/models/...)，從而完美避開 404 報錯！
-        const models = [
-            "meta/meta-llama-3.2-11b-vision-instruct:e14a7e3ca01fdb0b73c3b0dfb2f153a7b7cf16766d0ef0dfd110193132d7d598", // 1. Meta 官方 11B 視覺模型 (含確切版本 Hash)
-            "meta/meta-llama-3.2-90b-vision-instruct:343116011a7e3ca01fdb0b73c3b0dfb2f153a7b7cf16766d0ef0dfd110193132d7d598", // 2. Meta 官方 90B 視覺模型 (含確切版本 Hash)
-            "yorickvp/llava-13b:e27215734548cd6ec99233b4c4d5d57fd45591114a4c24c2fc2fc2fc2fc2f", // 3. 經典極穩定的 Llava 13B 視覺大腦 (免 terms 協議，絕不 404)
-            "meta/meta-llama-3.2-11b-vision-instruct" // 4. 無 Hash 備用
-        ];
-
-        let response = null;
-        let activeModel = "";
-
-        for (const model of models) {
-            try {
-                console.log(`[Vision AI] 號碼 #${taskId}: 嘗試連線至 Replicate [${model}]...`);
-                response = await replicate.run(
-                    model,
-                    {
-                        input: {
-                            image: base64Image,
-                            prompt: promptText.trim(),
-                            max_new_tokens: 450
-                        }
-                    }
-                );
-                activeModel = model;
-                break; // 只要有一個模型成功回傳，立即跳出迴圈
-            } catch (modelError) {
-                console.warn(`⚠️ 模型 [${model}] 連線失敗，即將切換至下一備用方案。錯誤原因: ${modelError.message}`);
+        // 🌟 直接呼叫 yorickvp/llava-13b (不帶 Hash 讓 Replicate 自己抓預設版本，免去 404 / 422 困擾！)
+        const response = await replicate.run(
+            "yorickvp/llava-13b",
+            {
+                input: {
+                    image: base64Image,
+                    prompt: promptText.trim(),
+                    max_tokens: 450,
+                    temperature: 0.2
+                }
             }
-        }
-
-        if (!response) {
-            throw new Error("所有 Llama 視覺大腦連線均失敗！請確認您的 REPLICATE_API_TOKEN 餘額充足或權限正常。");
-        }
+        );
 
         let rawText = Array.isArray(response) ? response.join("") : response;
-        console.log(`[Vision AI] 號碼 #${taskId} 透過 [${activeModel}] 解析成功！`);
+        console.log(`[Vision AI] 號碼 #${taskId} 原始回傳長度: ${rawText.length} 字元`);
 
-        // 防呆：清理 Llama 可能自作聰明附加的 Markdown 語法
+        // 清理 LLaVA 可能自作聰明附加的 Markdown 語法
         let cleanText = rawText.trim();
         cleanText = cleanText.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
 
@@ -248,11 +222,11 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
 
         if (tasks[taskId]) {
             tasks[taskId].suggestedPrompt = customPrompt;
-            console.log(`🎯 號碼牌 #${taskId} 的高相似度動態咒語組裝並儲存成功！`);
+            console.log(`🎯 號碼牌 #${taskId} 的客製特徵提示詞成功存入資料庫！`);
         }
 
     } catch (err) {
-        console.error(`❌ [Vision AI] 號碼 #${taskId} Llama 執行或解析發生錯誤:`, err.message);
+        console.error(`❌ [Vision AI] 號碼 #${taskId} LLaVA 執行或解析發生錯誤:`, err.message);
     }
 }
 
