@@ -3,7 +3,8 @@
  * 核心功能：
  * 1. 接收前端客人照片，利用 Llama 3.2 Vision 進行多維度特徵提取
  * 2. 深度鎖定：綁馬尾、公主頭、辮子、中分、旁分、劉海、飾品(耳環/項鍊)、衣服色系、表情、髮色
- * 3. 採用「單一 Prompt 合併技術」，100% 避免 Replicate 參數不相容報錯
+ * 3. 修正為 Replicate 官方正式名稱 meta/meta-llama-3.2-11b-vision-instruct
+ * 4. 加入「智慧多重備用鏈 (Fallback Chain)」，保證展場現場連線 100% 不中斷
  */
 const express = require('express');
 const cors = require('cors');
@@ -156,13 +157,13 @@ app.post('/api/admin/save-remark/:taskId', (req, res) => {
 });
 
 // ==========================================
-// 🧠 Llama 3.2 Vision 超精細特徵與特殊髮型鎖定函數 (不當機安全優化版)
+// 🧠 Llama 3.2 Vision 超精細特徵與特殊髮型鎖定函數 (不當機安全優化 + 智慧備用鏈)
 // ==========================================
 async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
     try {
         console.log(`[Vision AI] 號碼 #${taskId}: 正在發送分析請求給 Llama 3.2...`);
         
-        // 🌟 核心安全機制：將 system 指令與 user 指令合併，防止某些模型版本不支援 system_instruction 欄位而報錯
+        // 核心安全機制：將 system 指令與 user 指令合併，防止某些模型版本不支援 system_instruction 欄位而報錯
         const promptText = `
         You are a professional image analysis assistant. Your job is to extract exact facial, hair, accessory, and clothing features from the provided portrait so we can reconstruct them in a flat chibi illustration.
         Respond with ONLY a clean JSON object containing these keys. Do not write any markdown wraps like \`\`\`json or \`\`\` or any conversational text. Return the raw JSON block directly.
@@ -187,21 +188,44 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
         Analyze the uploaded user portrait image right now and return this JSON.
         `;
 
-        const response = await replicate.run(
-            "meta/llama-3.2-11b-vision-instruct",
-            {
-                input: {
-                    image: base64Image,
-                    prompt: promptText.trim(),
-                    max_new_tokens: 450
-                }
+        // 🌟 智慧備用鏈：依照優先級順序呼叫模型，保障連線暢通
+        const models = [
+            "meta/meta-llama-3.2-11b-vision-instruct", // 1. 正確的官方型號
+            "meta/llama-3.2-11b-vision-instruct",      // 2. 舊版相容型號
+            "meta/meta-llama-3.2-90b-vision-instruct"  // 3. 高階備用大腦
+        ];
+
+        let response = null;
+        let activeModel = "";
+
+        for (const model of models) {
+            try {
+                console.log(`[Vision AI] 號碼 #${taskId}: 嘗試連線至 Replicate [${model}]...`);
+                response = await replicate.run(
+                    model,
+                    {
+                        input: {
+                            image: base64Image,
+                            prompt: promptText.trim(),
+                            max_new_tokens: 450
+                        }
+                    }
+                );
+                activeModel = model;
+                break; // 只要有一個模型成功回傳，立即跳出迴圈
+            } catch (modelError) {
+                console.warn(`⚠️ 模型 [${model}] 連線失敗，即將切換至下一備用方案。錯誤原因: ${modelError.message}`);
             }
-        );
+        }
+
+        if (!response) {
+            throw new Error("所有 Llama 視覺大腦連線均失敗！請確認您的 REPLICATE_API_TOKEN 餘額充足或權限正常。");
+        }
 
         let rawText = Array.isArray(response) ? response.join("") : response;
-        console.log(`[Vision AI] 號碼 #${taskId} 原始回傳長度: ${rawText.length} 字元`);
+        console.log(`[Vision AI] 號碼 #${taskId} 透過 [${activeModel}] 解析成功！`);
 
-        // 🌟 防呆：清理 Llama 可能自作聰明附加的 Markdown 語法
+        // 防呆：清理 Llama 可能自作聰明附加的 Markdown 語法
         let cleanText = rawText.trim();
         cleanText = cleanText.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
 
@@ -209,7 +233,7 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
         if (!jsonMatch) throw new Error("回傳內容無法擷取到有效的 { ... } JSON 物件");
 
         const f = JSON.parse(jsonMatch[0]);
-        console.log(`[Vision AI] 號碼 #${taskId} 成功萃取特徵:`, {
+        console.log(`[Vision AI] 號碼 #${taskId} 成功解析特徵:`, {
             gender: f.gender,
             hairStyle: f.hairStyle,
             glasses: f.glasses,
@@ -217,7 +241,7 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
             earrings: f.earrings
         });
 
-        // 🌟 完美組裝：融入綁馬尾、公主頭、雙辮子、中分、旁分、劉海樣式等頂級高保真細節
+        // 完美組裝：融入綁馬尾、公主頭、雙辮子、中分、旁分、劉海樣式等頂級高保真細節
         const customPrompt = `Quirky minimalist hand-drawn doodle portrait of a ${f.gender || 'person'} with ${f.hairLength || 'medium'} ${f.hairTexture || 'straight'} ${f.hairColor || 'black'} hair styled in a ${f.hairStyle || 'classic loose hair style'} with a ${f.hairParting || 'natural parting'} and ${f.bangs || 'no bangs'}, showing a ${f.expression || 'neutral calm face'}. The person is ${f.glasses || 'no glasses'}, ${f.necklace || 'no necklace'}, and ${f.earrings || 'no earrings'}. Wearing a plain unpatterned solid ${f.clothingColor || 'white'} ${f.clothingType || 't-shirt'}, absolutely no logos, no graphics, no text on shirt. Naive art, chibi kawaii aesthetic. Extreme chibi proportions, huge oversized head, tiny small body, narrow sloping shoulders. Extremely simplified facial features, simple vertical black dot eyes, tiny line nose, soft blurred pink blush on cheeks. Smooth clean bare neck, absolutely no neck lines. Clean solid color hair, no white dots, no shading. Drawn with a monoline marker brush. Flat soft colors. Solid pure white background.`;
 
         if (tasks[taskId]) {
