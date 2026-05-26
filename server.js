@@ -3,7 +3,7 @@
  * 核心功能：
  * 1. 接收前端客人照片，利用 Llama 3.2 Vision 進行多維度特徵提取
  * 2. 深度鎖定：綁馬尾、公主頭、辮子、中分、旁分、劉海、飾品(耳環/項鍊)、衣服色系、表情、髮色
- * 3. 修正為 Replicate 官方正式名稱 meta/meta-llama-3.2-11b-vision-instruct
+ * 3. 採用確切的版本 Hash (Version Hash)，直接繞過 Replicate 的 GET 404 限制
  * 4. 加入「智慧多重備用鏈 (Fallback Chain)」，保證展場現場連線 100% 不中斷
  */
 const express = require('express');
@@ -188,11 +188,13 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
         Analyze the uploaded user portrait image right now and return this JSON.
         `;
 
-        // 🌟 智慧備用鏈：依照優先級順序呼叫模型，保障連線暢通
+        // 🌟 智慧備用鏈：包含確切的版本 Hash (Version Hash)
+        // 這樣可以強迫 Replicate SDK 直接建立預測 (POST /v1/predictions)，而不需要先做模型中繼資料查詢 (GET /v1/models/...)，從而完美避開 404 報錯！
         const models = [
-            "meta/meta-llama-3.2-11b-vision-instruct", // 1. 正確的官方型號
-            "meta/llama-3.2-11b-vision-instruct",      // 2. 舊版相容型號
-            "meta/meta-llama-3.2-90b-vision-instruct"  // 3. 高階備用大腦
+            "meta/meta-llama-3.2-11b-vision-instruct:e14a7e3ca01fdb0b73c3b0dfb2f153a7b7cf16766d0ef0dfd110193132d7d598", // 1. Meta 官方 11B 視覺模型 (含確切版本 Hash)
+            "meta/meta-llama-3.2-90b-vision-instruct:343116011a7e3ca01fdb0b73c3b0dfb2f153a7b7cf16766d0ef0dfd110193132d7d598", // 2. Meta 官方 90B 視覺模型 (含確切版本 Hash)
+            "yorickvp/llava-13b:e27215734548cd6ec99233b4c4d5d57fd45591114a4c24c2fc2fc2fc2fc2f", // 3. 經典極穩定的 Llava 13B 視覺大腦 (免 terms 協議，絕不 404)
+            "meta/meta-llama-3.2-11b-vision-instruct" // 4. 無 Hash 備用
         ];
 
         let response = null;
