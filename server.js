@@ -47,7 +47,8 @@ app.post('/api/upload', async (req, res) => {
             chosenDesign: null,   // 客人選哪張 (A 或是 B)
             remark: '',         
             suggestedPrompt: fallbackPrompt, 
-            createdAt: new Date().toLocaleTimeString('zh-TW', { hour12: false }) 
+            // 🌟 核心修正：強制指定為台北時區，確保顯示台灣時間
+            createdAt: new Date().toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }) 
         };
 
         console.log(`🎫 新任務建立：排隊號碼 #${taskId}`);
@@ -94,7 +95,7 @@ app.get('/api/admin/all-tasks', (req, res) => {
     res.json({ success: true, tasks: all });
 });
 
-// 5. 工作人員上傳風格 A 或風格 B 的結果圖 (補強路由)
+// 5. 工作人員上傳風格 A 或風格 B 的結果圖
 app.post('/api/admin/upload-result-dual/:taskId', (req, res) => {
     const taskId = req.params.taskId;
     const { resultImageA, resultImageB } = req.body;
