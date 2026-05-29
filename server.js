@@ -78,7 +78,7 @@ async function syncTicketCounterFromCloud() {
     }
 }
 
-// 🌟 飛鵝雲端自動出單排版與呼叫功能 (支援 80mm 大寬度紙張) - 已加入安全防空白修剪 🛡️
+// 🌟 飛鵝雲端自動出單排版與呼叫功能 (支援 80mm 大寬度紙張) - 已經優化為海外/台灣/日本專屬伺服器 🛡️
 async function triggerFeiePrint(task) {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -118,7 +118,8 @@ async function triggerFeiePrint(task) {
     params.append('times', '1');
 
     try {
-        const response = await fetch('http://api.feieyun.cn/Api/Open/', {
+        // 🌟 核心修正：將大陸節點 api.feieyun.cn 變更為海外/台灣專屬安全節點 api.jp.feieyun.com
+        const response = await fetch('https://api.jp.feieyun.com/Api/Open/', {
             method: 'POST',
             body: params,
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -130,7 +131,7 @@ async function triggerFeiePrint(task) {
     }
 }
 
-// 🌟 飛鵝雲端印表機實時狀態檢測 - 已加入安全防空白修剪 🛡️
+// 🌟 飛鵝雲端印表機實時狀態檢測 - 已經優化為海外/台灣/日本專屬伺服器 🛡️
 async function queryFeieStatus() {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -149,7 +150,8 @@ async function queryFeieStatus() {
     params.append('sn', sn);
 
     try {
-        const response = await fetch('http://api.feieyun.cn/Api/Open/', {
+        // 🌟 核心修正：將大陸節點 api.feieyun.cn 變更為海外/台灣專屬安全節點 api.jp.feieyun.com
+        const response = await fetch('https://api.jp.feieyun.com/Api/Open/', {
             method: 'POST',
             body: params,
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -322,7 +324,21 @@ app.post('/api/admin/upload-result-dual/:taskId', async (req, res) => {
 async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
     try {
         const promptText = `
-        You are a highly precise visual analysis assistant. Output ONLY a JSON block inside curly braces...
+        You are a highly precise visual analysis assistant. Output ONLY a JSON block inside curly braces, containing these exact attributes:
+        {
+          "gender": "man, woman, boy, or girl",
+          "hairLength": "short (above shoulders), shoulder-length, or long (past shoulders)",
+          "hairTexture": "straight, wavy, or curly",
+          "hairStyle": "messy bun, ponytail, princess, braids, loose hair",
+          "hairParting": "center-parted, side-parted, or no parting",
+          "bangs": "wispy bangs, side-swept bangs, blunt bangs, or no bangs",
+          "hairColor": "black, dark brown, chestnut brown, blonde, dyed pink, dyed purple, or silver grey",
+          "glasses": "wearing glasses, or no glasses",
+          "necklace": "wearing necklace, or no necklace",
+          "earrings": "wearing earrings, or no earrings",
+          "clothingColor": "black, white, red, blue, green, yellow, pink, or grey"
+        }
+        Output raw JSON directly. Do not wrap in markdown tags.
         `;
 
         let rawText = "";
@@ -341,7 +357,7 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
         let bangsText = f.bangs === 'no bangs' ? 'no bangs' : `${f.bangs}`;
         if (f.hairParting && f.hairParting !== 'no parting') bangsText += ` with a ${f.hairParting}`;
 
-        const customPrompt = `Quirky minimalist hand-drawn doodle portrait of a ${f.gender || 'person'} with long straight ${f.hairColor || 'black'} hair styled in a ${f.hairStyle || 'loose hair'} with ${bangsText}, showing a smiling. The person is ${f.glasses || 'no glasses'}, ${f.necklace || 'no necklace'}, and ${f.earrings || 'no earrings'}. Wearing a plain unpatterned solid ${f.clothingColor || 'white'} t-shirt. Naive art, chibi kawaii aesthetic. Flat soft colors. Solid pure white background.`;
+        const customPrompt = `Quirky minimalist hand-drawn doodle portrait of a ${f.gender || 'person'} with long straight ${f.hairColor || 'black'} hair styled in a ${f.hairStyle || 'loose hair'} with ${bangsText}, showing a smiling. The person is ${f.glasses || 'no glasses'}, ${f.necklace || 'no necklace'}, and ${f.earrings || 'no earrings'}. Wearing a plain unpatterned solid ${f.clothingColor || 'white'} t-shirt, absolutely no logos, no graphics, no text on shirt. Naive art, chibi kawaii aesthetic. Extreme chibi proportions, huge oversized head, tiny small body, narrow sloping shoulders. Extremely simplified facial features, simple vertical black dot eyes, tiny line nose, soft blurred pink blush on cheeks. Smooth clean bare neck, absolutely no neck lines. Clean solid color hair, no white dots, no shading. Drawn with a monoline marker brush. Flat soft colors. Solid pure white background.`;
 
         if (localTasksCache[taskId]) {
             localTasksCache[taskId].suggestedPrompt = customPrompt;
