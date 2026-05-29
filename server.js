@@ -1,12 +1,13 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
+ * 🌟 增量加載與 Firebase 讀取歸零優化版
  */
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const Replicate = require('replicate');
 const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc } = require('firebase/firestore');
+const { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc } = require('firebase/firestore');
 
 const app = express();
 const PORT = process.env.PORT || 10000; 
@@ -24,7 +25,7 @@ let ticketCounter = 1;
 let db;
 let useFirebase = false;
 
-// 🌟 Firebase Firestore 初始化 (智慧防當機寬鬆解析模式)
+// Firebase Firestore 初始化
 if (process.env.FIREBASE_CONFIG) {
     try {
         let configStr = process.env.FIREBASE_CONFIG.trim();
@@ -77,7 +78,7 @@ async function syncTicketCounterFromCloud() {
     }
 }
 
-// 🌟 飛鵝雲端自動出單排版功能 - 徹底消除 `<H>` 標籤與 `#` 號，僅印出加粗置中純數字「003」
+// 飛鵝雲端自動出票
 async function triggerFeiePrint(task) {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -91,7 +92,6 @@ async function triggerFeiePrint(task) {
     const stime = Math.floor(Date.now() / 1000);
     const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
 
-    // 🌟 完美排版：採用 100% 支援的 <CB><B> 標籤，直接輸出 003（對應號碼）
     let content = `<CB><B>專屬禮品兌換</B></CB><BR><BR>`;
     content += `--------------------------------<BR>`;
     content += `<CB><B>${task.id}</B></CB><BR>`;
@@ -126,7 +126,7 @@ async function triggerFeiePrint(task) {
     }
 }
 
-// 🌟 飛鵝雲端印表機實時狀態檢測
+// 查詢印表機狀態
 async function queryFeieStatus() {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -161,6 +161,26 @@ app.post('/api/upload', async (req, res) => {
     try {
         const { image } = req.body;
         if (!image) return res.status(400).json({ error: '未提供圖片資料' });
+
+        if (useFirebase) {
+            try {
+                const tasksCol = collection(db, 'artifacts', appId, 'public');
+                const querySnapshot = await getDocs(tasksCol);
+                let maxId = 0;
+                querySnapshot.forEach((document) => {
+                    const idNum = parseInt(document.id, 10);
+                    if (!isNaN(idNum) && idNum > maxId) {
+                        maxId = idNum;
+                    }
+                    localTasksCache[document.id] = document.data();
+                });
+                if (maxId >= ticketCounter) {
+                    ticketCounter = maxId + 1;
+                }
+            } catch (e) {
+                console.error("⚠️ 實時安全序號校對失敗:", e.message);
+            }
+        }
 
         const taskId = String(ticketCounter).padStart(3, '0');
         ticketCounter++;
@@ -253,20 +273,33 @@ app.post('/api/choice/:taskId', async (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/admin/all-tasks', async (req, res) => {
-    if (useFirebase) {
-        try {
-            const tasksCol = collection(db, 'artifacts', appId, 'public');
-            const querySnapshot = await getDocs(tasksCol);
-            querySnapshot.forEach((doc) => {
-                localTasksCache[doc.id] = doc.data();
-            });
-        } catch (e) {
-            console.error("❌ 輪詢同步雲端失敗:", e.message);
-        }
-    }
-    const all = Object.values(localTasksCache).sort((a, b) => a.id.localeCompare(b.id));
-    res.json({ success: true, tasks: all });
+// 🌟 優化 1：極輕量化輪詢 API (只回傳文字 ID 列表與進度，100% 拿掉大圖 Base64，每次回傳僅 1KB)
+app.get('/api/admin/all-tasks-lean', (req, res) => {
+    const leanTasks = Object.values(localTasksCache).map(task => ({
+        id: task.id,
+        status: task.status,
+        processStatus: task.processStatus || '製作中',
+        remark: task.remark || '',
+        suggestedPrompt: task.suggestedPrompt,
+        createdAt: task.createdAt,
+        chosenDesign: task.chosenDesign
+    })).sort((a, b) => b.id.localeCompare(a.id));
+
+    res.json({ success: true, tasks: leanTasks });
+});
+
+// 🌟 優化 2：獨立圖片撈取 API (只有在控制台需要顯示新卡片時，才單獨請求一次，絕不重複下載)
+app.get('/api/admin/task-images/:taskId', (req, res) => {
+    const taskId = req.params.taskId;
+    const task = localTasksCache[taskId];
+    if (!task) return res.status(404).json({ error: '找不到任務' });
+
+    res.json({
+        success: true,
+        sourceImage: task.sourceImage,
+        resultImageA: task.resultImageA,
+        resultImageB: task.resultImageB
+    });
 });
 
 app.get('/api/admin/printer-status', async (req, res) => {
@@ -282,6 +315,33 @@ app.post('/api/admin/reprint/:taskId', async (req, res) => {
     console.log(`🖨️ 管理員手動觸發號碼牌 #${taskId} 重新出票列印`);
     await triggerFeiePrint(task);
     res.json({ success: true });
+});
+
+// 管理員重製
+app.post('/api/admin/reset-all', async (req, res) => {
+    try {
+        console.log("🧹 收到管理員重製要求，正在清空所有訂單並歸零流水號...");
+        localTasksCache = {};
+        ticketCounter = 1;
+
+        if (useFirebase) {
+            const tasksCol = collection(db, 'artifacts', appId, 'public');
+            const querySnapshot = await getDocs(tasksCol);
+            
+            const deletePromises = [];
+            querySnapshot.forEach((document) => {
+                const docRef = doc(db, 'artifacts', appId, 'public', document.id);
+                deletePromises.push(deleteDoc(docRef));
+            });
+            await Promise.all(deletePromises);
+            console.log("🔥 雲端所有排隊文件已清空！");
+        }
+
+        res.json({ success: true, message: "所有資料已重製，流水號已回到 001" });
+    } catch (error) {
+        console.error("❌ 重製失敗:", error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.post('/api/admin/upload-result-dual/:taskId', async (req, res) => {
