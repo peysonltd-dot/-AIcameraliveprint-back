@@ -1,13 +1,12 @@
 /**
- * AI 互動雷雕拍照系統 - 後端 API (雙風格二選一完全體版)
- * 核心功能：
- * 1. 支援後台管理員同時上傳雙重 AI 風格圖 (resultImageA / resultImageB)
- * 2. 支援前端使用者互動二選一，並將客人的最終抉擇 (chosenDesign) 存回後台
- * 3. 採用安全免條約之 LLaVA 13B 視覺大腦，徹底避開 404 限制。
+ * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
  */
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const Replicate = require('replicate');
+const { initializeApp } = require('firebase/app');
+const { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc } = require('firebase/firestore');
 
 const app = express();
 const PORT = process.env.PORT || 10000; 
@@ -20,14 +19,148 @@ app.use(cors());
 app.use(express.json({ limit: '60mb' }));
 app.use(express.urlencoded({ limit: '60mb', extended: true }));
 
-const tasks = {};
+let localTasksCache = {};
 let ticketCounter = 1;
+let db;
+let useFirebase = false;
 
-app.get('/', (req, res) => {
-    res.status(200).send("🟢 Queue Server (Dual-Style Choice Engine) is active.");
-});
+// 🌟 Firebase Firestore 初始化 (智慧防當機寬鬆解析模式)
+if (process.env.FIREBASE_CONFIG) {
+    try {
+        let configStr = process.env.FIREBASE_CONFIG.trim();
+        let firebaseConfig;
+        
+        try {
+            // 嘗試標準 strict JSON 解析
+            firebaseConfig = JSON.parse(configStr);
+        } catch (jsonErr) {
+            console.log("⚠️ 偵測到非標準 JSON 格式金鑰，啟動智慧寬鬆格式化解析...");
+            // 將 JavaScript 物件格式 (鍵名無雙引號) 自動轉換為嚴格 JSON 格式
+            let formatted = configStr
+                .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":') // 補上鍵名雙引號
+                .replace(/'/g, '"'); // 單引號替換為雙引號
+            firebaseConfig = JSON.parse(formatted);
+        }
 
-// 1. 客人拍照上傳
+        const firebaseApp = initializeApp(firebaseConfig);
+        db = getFirestore(firebaseApp);
+        useFirebase = true;
+        console.log("🔥 Firebase Firestore 雲端資料庫連接成功！");
+        syncTicketCounterFromCloud();
+    } catch (e) {
+        // 核心隔離：即使金鑰填寫有嚴重錯誤，也只會印出警告，絕不當機退出
+        console.error("❌ Firebase 初始化失敗，已自動安全降級為本機暫存模式:", e.message);
+    }
+} else {
+    console.log("⚠️ 未偵測到 FIREBASE_CONFIG 環境變數。伺服器正運行於本機暫存模式。");
+}
+
+const appId = process.env.APP_ID || "photo-booth-app";
+
+async function syncTicketCounterFromCloud() {
+    if (!useFirebase) return;
+    try {
+        console.log("🔄 正在向雲端資料庫查詢今日歷史排隊紀錄，續接流水號...");
+        const tasksCol = collection(db, 'artifacts', appId, 'public', 'tasks');
+        const querySnapshot = await getDocs(tasksCol);
+        
+        let maxId = 0;
+        querySnapshot.forEach((doc) => {
+            const idNum = parseInt(doc.id, 10);
+            if (!isNaN(idNum) && idNum > maxId) {
+                maxId = idNum;
+            }
+            localTasksCache[doc.id] = doc.data();
+        });
+        
+        ticketCounter = maxId + 1;
+        console.log(`🎯 流水號續接成功！下一位排隊號碼將為：#${String(ticketCounter).padStart(3, '0')}`);
+    } catch (e) {
+        console.error("❌ 續接流水號失敗:", e.message);
+    }
+}
+
+// 🌟 飛鵝雲端自動出單排版與呼叫功能 (支援 80mm 大寬度紙張)
+async function triggerFeiePrint(task) {
+    const user = process.env.FEIE_USER || "";
+    const ukey = process.env.FEIE_UKEY || "";
+    const sn = process.env.FEIE_SN || "961820398"; // 自動綁定您的 SN
+    if (!user || !ukey) {
+        console.log("⚠️ 飛鵝雲 USER 或 UKEY 尚未在環境變數設定，跳過自動出單。");
+        return;
+    }
+
+    const stime = Math.floor(Date.now() / 1000);
+    const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
+
+    // 格式化 80mm 精美熱感紙列印內容 (支援排版標籤)
+    let content = `<CB><B><FONT size=1>2026 智慧創新大賞</FONT></B></CB><BR>`;
+    content += `<CB><B>AI 互動雷雕體驗券</B></CB><BR>`;
+    content += `------------------------------------------------<BR>`;
+    content += `<B>您的專屬排隊流水號：</B><BR>`;
+    content += `<CB><B><FONT size=2>#${task.id}</FONT></B></CB><BR>`;
+    content += `------------------------------------------------<BR>`;
+    content += `已選風格：[ 風格 ${task.chosenDesign || '未選擇'} 款 ]<BR>`;
+    content += `排隊時間：${task.createdAt}<BR>`;
+    content += `------------------------------------------------<BR>`;
+    content += `<B>領取說明：</B><BR>`;
+    content += `請妥善保管此票券，並前往雷雕取件處，<BR>`;
+    content += `向現場工作人員出示此號碼，即可領取您的雷雕作品！<BR>`;
+    content += `------------------------------------------------<BR>`;
+    content += `<CB>～ 感謝您的參與，祝您體驗愉快 ～</CB><BR>`;
+
+    const params = new URLSearchParams();
+    params.append('user', user);
+    params.append('stime', stime.toString());
+    params.append('sig', sig);
+    params.append('apiname', 'Open_printMsg');
+    params.append('sn', sn);
+    params.append('content', content);
+    params.append('times', '1');
+
+    try {
+        const response = await fetch('http://api.feieyun.cn/Api/Open/', {
+            method: 'POST',
+            body: params,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        const resData = await response.json();
+        console.log(`🖨️ 飛鵝雲自動出單發送回報 (#${task.id}):`, resData);
+    } catch (err) {
+        console.error("❌ 飛鵝雲出單發送失敗:", err.message);
+    }
+}
+
+// 🌟 飛鵝雲端印表機實時狀態檢測
+async function queryFeieStatus() {
+    const user = process.env.FEIE_USER || "";
+    const ukey = process.env.FEIE_UKEY || "";
+    const sn = process.env.FEIE_SN || "961820398";
+    if (!user || !ukey) return { success: false, msg: "未設定 FEIE_USER 或 FEIE_UKEY" };
+
+    const stime = Math.floor(Date.now() / 1000);
+    const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
+
+    const params = new URLSearchParams();
+    params.append('user', user);
+    params.append('stime', stime.toString());
+    params.append('sig', sig);
+    params.append('apiname', 'Open_queryPrinterStatus');
+    params.append('sn', sn);
+
+    try {
+        const response = await fetch('http://api.feieyun.cn/Api/Open/', {
+            method: 'POST',
+            body: params,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        const resData = await response.json();
+        return { success: true, data: resData };
+    } catch (err) {
+        return { success: false, msg: err.message };
+    }
+}
+
 app.post('/api/upload', async (req, res) => {
     try {
         const { image } = req.body;
@@ -36,20 +169,31 @@ app.post('/api/upload', async (req, res) => {
         const taskId = String(ticketCounter).padStart(3, '0');
         ticketCounter++;
 
-        let fallbackPrompt = `Quirky minimalist hand-drawn doodle portrait, naive art, chibi kawaii aesthetic. Extreme chibi proportions, huge oversized head, tiny small body, narrow sloping shoulders. Extremely simplified facial features, simple vertical dot eyes, tiny line nose, soft blurred pink blush on cheeks. Clean simple neck, wearing a basic round neck t-shirt. Drawn with a monoline marker brush. Flat soft colors. Solid pure white background, no shading.`;
+        let fallbackPrompt = `Quirky minimalist hand-drawn doodle portrait, naive art, chibi kawaii aesthetic. Extreme chibi proportions, huge oversized head, tiny small body, narrow sloping shoulders. Extremely simplified facial features, simple vertical black dot eyes, tiny line nose, soft blurred pink blush on cheeks. Clean simple neck, wearing a basic round neck t-shirt. Drawn with a monoline marker brush. Flat soft colors. Solid pure white background, no shading.`;
 
-        tasks[taskId] = {
+        const newTask = {
             id: taskId,
             sourceImage: image, 
             status: 'pending',  
-            resultImageA: null,   // 風格 A
-            resultImageB: null,   // 風格 B
-            chosenDesign: null,   // 客人選哪張 (A 或是 B)
+            resultImageA: null,   
+            resultImageB: null,   
+            chosenDesign: null,   
+            processStatus: '製作中',
             remark: '',         
             suggestedPrompt: fallbackPrompt, 
-            // 🌟 核心修正：強制指定為台北時區，確保顯示台灣時間
             createdAt: new Date().toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }) 
         };
+
+        localTasksCache[taskId] = newTask;
+
+        if (useFirebase) {
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+                await setDoc(docRef, newTask);
+            } catch (fsErr) {
+                console.error(`❌ 雲端備份失敗:`, fsErr.message);
+            }
+        }
 
         console.log(`🎫 新任務建立：排隊號碼 #${taskId}`);
         res.json({ success: true, taskId: taskId });
@@ -62,10 +206,23 @@ app.post('/api/upload', async (req, res) => {
     }
 });
 
-// 2. 輪詢查詢狀態 (讓前端知道有沒有雙圖了，並回傳客人選了哪張)
-app.get('/api/status/:taskId', (req, res) => {
+app.get('/api/status/:taskId', async (req, res) => {
     const taskId = req.params.taskId;
-    const task = tasks[taskId];
+    let task = localTasksCache[taskId];
+
+    if (!task && useFirebase) {
+        try {
+            const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                task = docSnap.data();
+                localTasksCache[taskId] = task;
+            }
+        } catch (e) {
+            console.error("❌ 讀取雲端狀態失敗:", e.message);
+        }
+    }
+
     if (!task) return res.status(404).json({ error: '找不到該號碼任務' });
 
     res.json({ 
@@ -77,44 +234,94 @@ app.get('/api/status/:taskId', (req, res) => {
     });
 });
 
-// 3. 客人點選了某一風格，回傳給後台紀錄
-app.post('/api/choice/:taskId', (req, res) => {
+// 3. 客人點選了某一風格，回傳給後台紀錄並觸發「自動列印」
+app.post('/api/choice/:taskId', async (req, res) => {
     const taskId = req.params.taskId;
-    const { choice } = req.body; // 'A' 或是 'B'
-    const task = tasks[taskId];
+    const { choice } = req.body; 
+    const task = localTasksCache[taskId];
     if (!task) return res.status(404).json({ error: '找不到該任務' });
 
     task.chosenDesign = choice;
-    console.log(`🎯 號碼牌 #${taskId} 客人最終選擇了風格：[${choice} 款]`);
-    res.json({ success: true });
-});
+    console.log(`🎯 號碼牌 #${taskId} 客人最終選擇了風格：[${choice} 款] - 觸發出票機印單`);
 
-// 4. 工作人員獲取所有數據
-app.get('/api/admin/all-tasks', (req, res) => {
-    const all = Object.values(tasks).sort((a, b) => a.id.localeCompare(b.id));
-    res.json({ success: true, tasks: all });
-});
+    // 🌟 在背景非同步呼叫飛鵝雲出單，完全不卡住前台
+    triggerFeiePrint(task);
 
-// 5. 工作人員上傳風格 A 或風格 B 的結果圖
-app.post('/api/admin/upload-result-dual/:taskId', (req, res) => {
-    const taskId = req.params.taskId;
-    const { resultImageA, resultImageB } = req.body;
-    const task = tasks[taskId];
-    if (!task) return res.status(404).json({ error: '找不到該任務' });
-
-    if (resultImageA) task.resultImageA = resultImageA;
-    if (resultImageB) task.resultImageB = resultImageB;
-
-    // 當兩張圖都被齊全上傳時，正式將狀態推進為 completed
-    if (task.resultImageA && task.resultImageA !== "" && task.resultImageB && task.resultImageB !== "") {
-        task.status = 'completed';
-        console.log(`✅ 任務完成：號碼 #${task.id} 的雙重風格圖皆已成功上傳到位！`);
+    if (useFirebase) {
+        try {
+            const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+            await updateDoc(docRef, { chosenDesign: choice });
+        } catch (e) {
+            console.error("❌ 同步客人抉擇失敗:", e.message);
+        }
     }
 
     res.json({ success: true });
 });
 
-// LLaVA 13B 視覺解析
+app.get('/api/admin/all-tasks', async (req, res) => {
+    if (useFirebase) {
+        try {
+            const tasksCol = collection(db, 'artifacts', appId, 'public', 'tasks');
+            const querySnapshot = await getDocs(tasksCol);
+            querySnapshot.forEach((doc) => {
+                localTasksCache[doc.id] = doc.data();
+            });
+        } catch (e) {
+            console.error("❌ 輪詢同步雲端失敗:", e.message);
+        }
+    }
+    const all = Object.values(localTasksCache).sort((a, b) => a.id.localeCompare(b.id));
+    res.json({ success: true, tasks: all });
+});
+
+// 🌟 出票機狀態檢測路由
+app.get('/api/admin/printer-status', async (req, res) => {
+    const result = await queryFeieStatus();
+    res.json(result);
+});
+
+// 🌟 手動重新補印路由
+app.post('/api/admin/reprint/:taskId', async (req, res) => {
+    const taskId = req.params.taskId;
+    const task = localTasksCache[taskId];
+    if (!task) return res.status(404).json({ success: false, error: "找不到該排隊任務" });
+    
+    console.log(`🖨️ 管理員手動觸發號碼牌 #${taskId} 重新出票列印`);
+    await triggerFeiePrint(task);
+    res.json({ success: true });
+});
+
+app.post('/api/admin/upload-result-dual/:taskId', async (req, res) => {
+    const taskId = req.params.taskId;
+    const { resultImageA, resultImageB } = req.body;
+    const task = localTasksCache[taskId];
+    if (!task) return res.status(404).json({ error: '找不到該任務' });
+
+    if (resultImageA) task.resultImageA = resultImageA;
+    if (resultImageB) task.resultImageB = resultImageB;
+
+    if (task.resultImageA && task.resultImageA !== "" && task.resultImageB && task.resultImageB !== "") {
+        task.status = 'completed';
+    }
+
+    if (useFirebase) {
+        try {
+            const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+            await updateDoc(docRef, {
+                resultImageA: task.resultImageA,
+                resultImageB: task.resultImageB,
+                status: task.status
+            });
+        } catch (e) {
+            console.error("❌ 同步結果圖至雲端失敗:", e.message);
+        }
+    }
+
+    res.json({ success: true });
+});
+
+// LLaVA 視覺解析
 async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
     try {
         const promptText = `
@@ -153,7 +360,17 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
 
         const customPrompt = `Quirky minimalist hand-drawn doodle portrait of a ${f.gender || 'person'} with long straight ${f.hairColor || 'black'} hair styled in a ${f.hairStyle || 'loose hair'} with ${bangsText}, showing a smiling. The person is ${f.glasses || 'no glasses'}, ${f.necklace || 'no necklace'}, and ${f.earrings || 'no earrings'}. Wearing a plain unpatterned solid ${f.clothingColor || 'white'} t-shirt, absolutely no logos, no graphics, no text on shirt. Naive art, chibi kawaii aesthetic. Extreme chibi proportions, huge oversized head, tiny small body, narrow sloping shoulders. Extremely simplified facial features, simple vertical black dot eyes, tiny line nose, soft blurred pink blush on cheeks. Smooth clean bare neck, absolutely no neck lines. Clean solid color hair, no white dots, no shading. Drawn with a monoline marker brush. Flat soft colors. Solid pure white background.`;
 
-        if (tasks[taskId]) tasks[taskId].suggestedPrompt = customPrompt;
+        if (localTasksCache[taskId]) {
+            localTasksCache[taskId].suggestedPrompt = customPrompt;
+            if (useFirebase) {
+                try {
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+                    await updateDoc(docRef, { suggestedPrompt: customPrompt });
+                } catch (fsErr) {
+                    console.error("❌ 同步建議提示詞失敗:", fsErr.message);
+                }
+            }
+        }
     } catch (err) {
         console.error(`❌ 號碼 #${taskId} LLaVA 錯誤:`, err.message);
     }
