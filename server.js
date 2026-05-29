@@ -77,7 +77,7 @@ async function syncTicketCounterFromCloud() {
     }
 }
 
-// 🌟 飛鵝雲端自動出單排版功能 - 100% 完美對齊全新版面樣式 (消滅所有 HTML 標籤)
+// 🌟 飛鵝雲端自動出單排版功能 - 徹底消除 `<H>` 標籤與 `#` 號，僅印出加粗置中純數字「003」
 async function triggerFeiePrint(task) {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -91,10 +91,10 @@ async function triggerFeiePrint(task) {
     const stime = Math.floor(Date.now() / 1000);
     const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
 
-    // 🌟 全新精簡防呆版面：使用飛鵝專屬 H 標籤 (雙倍高寬) 呈現超大號碼牌！
+    // 🌟 完美排版：採用 100% 支援的 <CB><B> 標籤，直接輸出 003（對應號碼）
     let content = `<CB><B>專屬禮品兌換</B></CB><BR><BR>`;
     content += `--------------------------------<BR>`;
-    content += `<CB><H>#${task.id}</H></CB><BR>`;
+    content += `<CB><B>${task.id}</B></CB><BR>`;
     content += `--------------------------------<BR>`;
     content += `排隊時間：${task.createdAt}<BR>`;
     content += `--------------------------------<BR>`;
