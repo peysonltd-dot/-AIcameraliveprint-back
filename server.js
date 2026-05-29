@@ -1,6 +1,5 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
- * 🌟 增量加載與 Firebase 讀取歸零優化版
  */
 const express = require('express');
 const cors = require('cors');
@@ -25,7 +24,7 @@ let ticketCounter = 1;
 let db;
 let useFirebase = false;
 
-// Firebase Firestore 初始化
+// 🌟 Firebase Firestore 初始化 (智慧防當機寬鬆解析模式)
 if (process.env.FIREBASE_CONFIG) {
     try {
         let configStr = process.env.FIREBASE_CONFIG.trim();
@@ -78,7 +77,7 @@ async function syncTicketCounterFromCloud() {
     }
 }
 
-// 飛鵝雲端自動出票
+// 🌟 飛鵝雲端自動出單排版功能 - 徹底消除 `<H>` 標籤與 `#` 號，僅印出加粗置中純數字「003」
 async function triggerFeiePrint(task) {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -126,7 +125,7 @@ async function triggerFeiePrint(task) {
     }
 }
 
-// 查詢印表機狀態
+// 🌟 飛鵝雲端印表機實時狀態檢測
 async function queryFeieStatus() {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -273,33 +272,20 @@ app.post('/api/choice/:taskId', async (req, res) => {
     res.json({ success: true });
 });
 
-// 🌟 優化 1：極輕量化輪詢 API (只回傳文字 ID 列表與進度，100% 拿掉大圖 Base64，每次回傳僅 1KB)
-app.get('/api/admin/all-tasks-lean', (req, res) => {
-    const leanTasks = Object.values(localTasksCache).map(task => ({
-        id: task.id,
-        status: task.status,
-        processStatus: task.processStatus || '製作中',
-        remark: task.remark || '',
-        suggestedPrompt: task.suggestedPrompt,
-        createdAt: task.createdAt,
-        chosenDesign: task.chosenDesign
-    })).sort((a, b) => b.id.localeCompare(a.id));
-
-    res.json({ success: true, tasks: leanTasks });
-});
-
-// 🌟 優化 2：獨立圖片撈取 API (只有在控制台需要顯示新卡片時，才單獨請求一次，絕不重複下載)
-app.get('/api/admin/task-images/:taskId', (req, res) => {
-    const taskId = req.params.taskId;
-    const task = localTasksCache[taskId];
-    if (!task) return res.status(404).json({ error: '找不到任務' });
-
-    res.json({
-        success: true,
-        sourceImage: task.sourceImage,
-        resultImageA: task.resultImageA,
-        resultImageB: task.resultImageB
-    });
+app.get('/api/admin/all-tasks', async (req, res) => {
+    if (useFirebase) {
+        try {
+            const tasksCol = collection(db, 'artifacts', appId, 'public');
+            const querySnapshot = await getDocs(tasksCol);
+            querySnapshot.forEach((doc) => {
+                localTasksCache[doc.id] = doc.data();
+            });
+        } catch (e) {
+            console.error("❌ 輪詢同步雲端失敗:", e.message);
+        }
+    }
+    const all = Object.values(localTasksCache).sort((a, b) => a.id.localeCompare(b.id));
+    res.json({ success: true, tasks: all });
 });
 
 app.get('/api/admin/printer-status', async (req, res) => {
@@ -317,7 +303,6 @@ app.post('/api/admin/reprint/:taskId', async (req, res) => {
     res.json({ success: true });
 });
 
-// 管理員重製
 app.post('/api/admin/reset-all', async (req, res) => {
     try {
         console.log("🧹 收到管理員重製要求，正在清空所有訂單並歸零流水號...");
@@ -327,7 +312,6 @@ app.post('/api/admin/reset-all', async (req, res) => {
         if (useFirebase) {
             const tasksCol = collection(db, 'artifacts', appId, 'public');
             const querySnapshot = await getDocs(tasksCol);
-            
             const deletePromises = [];
             querySnapshot.forEach((document) => {
                 const docRef = doc(db, 'artifacts', appId, 'public', document.id);
@@ -344,6 +328,7 @@ app.post('/api/admin/reset-all', async (req, res) => {
     }
 });
 
+// 🌟 核心修正：加入「增量安全防護 updates」—— 100% 避免 undefined 欄位破壞 Firestore 寫入與快取重疊
 app.post('/api/admin/upload-result-dual/:taskId', async (req, res) => {
     const taskId = req.params.taskId;
     const { resultImageA, resultImageB } = req.body;
@@ -360,11 +345,21 @@ app.post('/api/admin/upload-result-dual/:taskId', async (req, res) => {
     if (useFirebase) {
         try {
             const docRef = doc(db, 'artifacts', appId, 'public', taskId);
-            await updateDoc(docRef, {
-                resultImageA: task.resultImageA,
-                resultImageB: task.resultImageB,
-                status: task.status
-            });
+            const updatePayload = {};
+            
+            // 🛡️ 智慧排除 undefined 鍵，防範 Firebase 寫入中斷
+            if (task.resultImageA !== undefined && task.resultImageA !== null) {
+                updatePayload.resultImageA = task.resultImageA;
+            }
+            if (task.resultImageB !== undefined && task.resultImageB !== null) {
+                updatePayload.resultImageB = task.resultImageB;
+            }
+            if (task.status !== undefined && task.status !== null) {
+                updatePayload.status = task.status;
+            }
+            
+            await updateDoc(docRef, updatePayload);
+            console.log(`🔥 成功同步號碼牌 #${taskId} 最新狀態至雲端！`);
         } catch (e) {
             console.error("❌ 同步結果圖至雲端失敗:", e.message);
         }
