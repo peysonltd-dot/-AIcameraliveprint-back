@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 10000; 
 
 const replicate = new Replicate({
-    auth: process.env.REPLICATE_API_TOKEN || "", 
+    auth: (process.env.REPLICATE_API_TOKEN || "").trim(), 
 });
 
 app.use(cors());
@@ -52,13 +52,13 @@ if (process.env.FIREBASE_CONFIG) {
     console.log("⚠️ 未偵測到 FIREBASE_CONFIG 環境變數。伺服器正運行於本機暫存模式。");
 }
 
-const appId = process.env.APP_ID || "photo-booth-app";
+const appId = (process.env.APP_ID || "photo-booth-app").trim();
 
 async function syncTicketCounterFromCloud() {
     if (!useFirebase) return;
     try {
         console.log("🔄 正在向雲端資料庫查詢今日歷史排隊紀錄，續接流水號...");
-        const tasksCol = collection(db, 'artifacts', appId, 'public', 'tasks');
+        const tasksCol = collection(db, 'artifacts', appId, 'public');
         const querySnapshot = await getDocs(tasksCol);
         
         let maxId = 0;
@@ -77,17 +77,20 @@ async function syncTicketCounterFromCloud() {
     }
 }
 
-// 🌟 飛鵝雲端自動出單排版與呼叫功能 (支援 80mm 大寬度紙張)
+// 🌟 飛鵝雲端自動出單排版與呼叫功能 (支援 80mm 大寬度紙張) - 已加入安全防空白修剪 🛡️
 async function triggerFeiePrint(task) {
-    const user = process.env.FEIE_USER || "";
-    const ukey = process.env.FEIE_UKEY || "";
-    const sn = process.env.FEIE_SN || "961820398"; 
+    // 透過 .trim() 自動消除 Render 複製貼上時極易產生的微小空白字元
+    const user = (process.env.FEIE_USER || "").trim();
+    const ukey = (process.env.FEIE_UKEY || "").trim();
+    const sn = (process.env.FEIE_SN || "961820398").trim(); 
+
     if (!user || !ukey) {
         console.log("⚠️ 飛鵝雲 USER 或 UKEY 尚未在環境變數設定，跳過自動出單。");
         return;
     }
 
     const stime = Math.floor(Date.now() / 1000);
+    // 計算 SHA1 雜湊簽章
     const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
 
     let content = `<CB><B><FONT size=1>2026 智慧創新大賞</FONT></B></CB><BR>`;
@@ -127,11 +130,12 @@ async function triggerFeiePrint(task) {
     }
 }
 
-// 🌟 飛鵝雲端印表機實時狀態檢測
+// 🌟 飛鵝雲端印表機實時狀態檢測 - 已加入安全防空白修剪 🛡️
 async function queryFeieStatus() {
-    const user = process.env.FEIE_USER || "";
-    const ukey = process.env.FEIE_UKEY || "";
-    const sn = process.env.FEIE_SN || "961820398";
+    const user = (process.env.FEIE_USER || "").trim();
+    const ukey = (process.env.FEIE_UKEY || "").trim();
+    const sn = (process.env.FEIE_SN || "961820398").trim();
+
     if (!user || !ukey) return { success: false, msg: "未設定 FEIE_USER 或 FEIE_UKEY" };
 
     const stime = Math.floor(Date.now() / 1000);
@@ -184,7 +188,7 @@ app.post('/api/upload', async (req, res) => {
 
         if (useFirebase) {
             try {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+                const docRef = doc(db, 'artifacts', appId, 'public', taskId);
                 await setDoc(docRef, newTask);
             } catch (fsErr) {
                 console.error(`❌ 雲端備份失敗:`, fsErr.message);
@@ -208,7 +212,7 @@ app.get('/api/status/:taskId', async (req, res) => {
 
     if (!task && useFirebase) {
         try {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+            const docRef = doc(db, 'artifacts', appId, 'public', taskId);
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
                 task = docSnap.data();
@@ -243,7 +247,7 @@ app.post('/api/choice/:taskId', async (req, res) => {
 
     if (useFirebase) {
         try {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+            const docRef = doc(db, 'artifacts', appId, 'public', taskId);
             await updateDoc(docRef, { chosenDesign: choice });
         } catch (e) {
             console.error("❌ 同步客人抉擇失敗:", e.message);
@@ -256,7 +260,7 @@ app.post('/api/choice/:taskId', async (req, res) => {
 app.get('/api/admin/all-tasks', async (req, res) => {
     if (useFirebase) {
         try {
-            const tasksCol = collection(db, 'artifacts', appId, 'public', 'tasks');
+            const tasksCol = collection(db, 'artifacts', appId, 'public');
             const querySnapshot = await getDocs(tasksCol);
             querySnapshot.forEach((doc) => {
                 localTasksCache[doc.id] = doc.data();
@@ -269,13 +273,11 @@ app.get('/api/admin/all-tasks', async (req, res) => {
     res.json({ success: true, tasks: all });
 });
 
-// 🌟 出票機狀態檢測路由
 app.get('/api/admin/printer-status', async (req, res) => {
     const result = await queryFeieStatus();
     res.json(result);
 });
 
-// 🌟 手動重新補印路由
 app.post('/api/admin/reprint/:taskId', async (req, res) => {
     const taskId = req.params.taskId;
     const task = localTasksCache[taskId];
@@ -301,7 +303,7 @@ app.post('/api/admin/upload-result-dual/:taskId', async (req, res) => {
 
     if (useFirebase) {
         try {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+            const docRef = doc(db, 'artifacts', appId, 'public', taskId);
             await updateDoc(docRef, {
                 resultImageA: task.resultImageA,
                 resultImageB: task.resultImageB,
@@ -358,7 +360,7 @@ async function analyzeImageAndGeneratePrompt(taskId, base64Image) {
             localTasksCache[taskId].suggestedPrompt = customPrompt;
             if (useFirebase) {
                 try {
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'tasks', taskId);
+                    const docRef = doc(db, 'artifacts', appId, 'public', taskId);
                     await updateDoc(docRef, { suggestedPrompt: customPrompt });
                 } catch (fsErr) {
                     console.error("❌ 同步建議提示詞失敗:", fsErr.message);
