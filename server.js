@@ -31,14 +31,12 @@ if (process.env.FIREBASE_CONFIG) {
         let firebaseConfig;
         
         try {
-            // 嘗試標準 strict JSON 解析
             firebaseConfig = JSON.parse(configStr);
         } catch (jsonErr) {
             console.log("⚠️ 偵測到非標準 JSON 格式金鑰，啟動智慧寬鬆格式化解析...");
-            // 將 JavaScript 物件格式 (鍵名無雙引號) 自動轉換為嚴格 JSON 格式
             let formatted = configStr
-                .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":') // 補上鍵名雙引號
-                .replace(/'/g, '"'); // 單引號替換為雙引號
+                .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":') 
+                .replace(/'/g, '"'); 
             firebaseConfig = JSON.parse(formatted);
         }
 
@@ -48,7 +46,6 @@ if (process.env.FIREBASE_CONFIG) {
         console.log("🔥 Firebase Firestore 雲端資料庫連接成功！");
         syncTicketCounterFromCloud();
     } catch (e) {
-        // 核心隔離：即使金鑰填寫有嚴重錯誤，也只會印出警告，絕不當機退出
         console.error("❌ Firebase 初始化失敗，已自動安全降級為本機暫存模式:", e.message);
     }
 } else {
@@ -84,7 +81,7 @@ async function syncTicketCounterFromCloud() {
 async function triggerFeiePrint(task) {
     const user = process.env.FEIE_USER || "";
     const ukey = process.env.FEIE_UKEY || "";
-    const sn = process.env.FEIE_SN || "961820398"; // 自動綁定您的 SN
+    const sn = process.env.FEIE_SN || "961820398"; 
     if (!user || !ukey) {
         console.log("⚠️ 飛鵝雲 USER 或 UKEY 尚未在環境變數設定，跳過自動出單。");
         return;
@@ -93,7 +90,6 @@ async function triggerFeiePrint(task) {
     const stime = Math.floor(Date.now() / 1000);
     const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
 
-    // 格式化 80mm 精美熱感紙列印內容 (支援排版標籤)
     let content = `<CB><B><FONT size=1>2026 智慧創新大賞</FONT></B></CB><BR>`;
     content += `<CB><B>AI 互動雷雕體驗券</B></CB><BR>`;
     content += `------------------------------------------------<BR>`;
@@ -104,8 +100,8 @@ async function triggerFeiePrint(task) {
     content += `排隊時間：${task.createdAt}<BR>`;
     content += `------------------------------------------------<BR>`;
     content += `<B>領取說明：</B><BR>`;
-    content += `請妥善保管此票券，並前往雷雕取件處，<BR>`;
-    content += `向現場工作人員出示此號碼，即可領取您的雷雕作品！<BR>`;
+    content += `請妥善保管此票券，並前往雷雕處出示號碼，<BR>`;
+    content += `即可領取您的雷雕作品！<BR>`;
     content += `------------------------------------------------<BR>`;
     content += `<CB>～ 感謝您的參與，祝您體驗愉快 ～</CB><BR>`;
 
@@ -169,7 +165,7 @@ app.post('/api/upload', async (req, res) => {
         const taskId = String(ticketCounter).padStart(3, '0');
         ticketCounter++;
 
-        let fallbackPrompt = `Quirky minimalist hand-drawn doodle portrait, naive art, chibi kawaii aesthetic. Extreme chibi proportions, huge oversized head, tiny small body, narrow sloping shoulders. Extremely simplified facial features, simple vertical black dot eyes, tiny line nose, soft blurred pink blush on cheeks. Clean simple neck, wearing a basic round neck t-shirt. Drawn with a monoline marker brush. Flat soft colors. Solid pure white background, no shading.`;
+        let fallbackPrompt = `Quirky minimalist hand-drawn doodle portrait, naive art, chibi kawaii aesthetic. Extreme chibi proportions, huge oversized head, tiny small body.`;
 
         const newTask = {
             id: taskId,
@@ -234,7 +230,6 @@ app.get('/api/status/:taskId', async (req, res) => {
     });
 });
 
-// 3. 客人點選了某一風格，回傳給後台紀錄並觸發「自動列印」
 app.post('/api/choice/:taskId', async (req, res) => {
     const taskId = req.params.taskId;
     const { choice } = req.body; 
@@ -244,7 +239,6 @@ app.post('/api/choice/:taskId', async (req, res) => {
     task.chosenDesign = choice;
     console.log(`🎯 號碼牌 #${taskId} 客人最終選擇了風格：[${choice} 款] - 觸發出票機印單`);
 
-    // 🌟 在背景非同步呼叫飛鵝雲出單，完全不卡住前台
     triggerFeiePrint(task);
 
     if (useFirebase) {
