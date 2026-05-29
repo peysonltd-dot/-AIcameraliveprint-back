@@ -58,7 +58,6 @@ async function syncTicketCounterFromCloud() {
     if (!useFirebase) return;
     try {
         console.log("🔄 正在向雲端資料庫查詢今日歷史排隊紀錄，續接流水號...");
-        // 修正：使用 3 段式 Collections 路徑（奇數段），100% 杜絕 Invalid collection 報錯
         const tasksCol = collection(db, 'artifacts', appId, 'public');
         const querySnapshot = await getDocs(tasksCol);
         
@@ -78,7 +77,7 @@ async function syncTicketCounterFromCloud() {
     }
 }
 
-// 🌟 飛鵝雲端自動出單排版與呼叫功能 (支援 80mm 大寬度紙張) - 已經優化為海外/台灣/日本專屬伺服器 🛡️
+// 🌟 飛鵝雲端自動出單排版功能 - 100% 完美對齊全新版面樣式 (消滅所有 HTML 標籤)
 async function triggerFeiePrint(task) {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -90,23 +89,20 @@ async function triggerFeiePrint(task) {
     }
 
     const stime = Math.floor(Date.now() / 1000);
-    // 計算 SHA1 雜湊簽章
     const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
 
-    let content = `<CB><B><FONT size=1>2026 智慧創新大賞</FONT></B></CB><BR>`;
-    content += `<CB><B>AI 互動雷雕體驗券</B></CB><BR>`;
-    content += `------------------------------------------------<BR>`;
-    content += `<B>您的專屬排隊流水號：</B><BR>`;
-    content += `<CB><B><FONT size=2>#${task.id}</FONT></B></CB><BR>`;
-    content += `------------------------------------------------<BR>`;
-    content += `已選風格：[ 風格 ${task.chosenDesign || '未選擇'} 款 ]<BR>`;
+    // 🌟 全新精簡防呆版面：使用飛鵝專屬 H 標籤 (雙倍高寬) 呈現超大號碼牌！
+    let content = `<CB><B>專屬禮品兌換</B></CB><BR><BR>`;
+    content += `--------------------------------<BR>`;
+    content += `<CB><H>#${task.id}</H></CB><BR>`;
+    content += `--------------------------------<BR>`;
     content += `排隊時間：${task.createdAt}<BR>`;
-    content += `------------------------------------------------<BR>`;
+    content += `--------------------------------<BR>`;
     content += `<B>領取說明：</B><BR>`;
-    content += `請妥善保管此票券，並前往雷雕處出示號碼，<BR>`;
-    content += `即可領取您的雷雕作品！<BR>`;
-    content += `------------------------------------------------<BR>`;
-    content += `<CB>～ 感謝您的參與，祝您體驗愉快 ～</CB><BR>`;
+    content += `領取時請出示此號碼牌<BR>`;
+    content += `交由工作人員兌換您的禮品<BR><BR>`;
+    content += `<CB>～感謝您的參與～</CB><BR>`;
+    content += `<CB>～祝您體驗愉快～</CB><BR>`;
 
     const params = new URLSearchParams();
     params.append('user', user);
@@ -118,7 +114,6 @@ async function triggerFeiePrint(task) {
     params.append('times', '1');
 
     try {
-        // 🌟 核心修正：將大陸節點 api.feieyun.cn 變更為海外/台灣專屬安全節點 api.jp.feieyun.com
         const response = await fetch('https://api.jp.feieyun.com/Api/Open/', {
             method: 'POST',
             body: params,
@@ -131,7 +126,7 @@ async function triggerFeiePrint(task) {
     }
 }
 
-// 🌟 飛鵝雲端印表機實時狀態檢測 - 已經優化為海外/台灣/日本專屬伺服器 🛡️
+// 🌟 飛鵝雲端印表機實時狀態檢測
 async function queryFeieStatus() {
     const user = (process.env.FEIE_USER || "").trim();
     const ukey = (process.env.FEIE_UKEY || "").trim();
@@ -150,7 +145,6 @@ async function queryFeieStatus() {
     params.append('sn', sn);
 
     try {
-        // 🌟 核心修正：將大陸節點 api.feieyun.cn 變更為海外/台灣專屬安全節點 api.jp.feieyun.com
         const response = await fetch('https://api.jp.feieyun.com/Api/Open/', {
             method: 'POST',
             body: params,
@@ -190,7 +184,6 @@ app.post('/api/upload', async (req, res) => {
 
         if (useFirebase) {
             try {
-                // 修正：4 段式正確 Documents 路徑
                 const docRef = doc(db, 'artifacts', appId, 'public', taskId);
                 await setDoc(docRef, newTask);
             } catch (fsErr) {
