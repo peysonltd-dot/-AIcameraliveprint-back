@@ -3,6 +3,7 @@
  * 🌟 升級功能：Leonardo.ai 官方 v2 API 雙模型智動化併發生圖 (支援金鑰無痛安全退回)
  * 🌟 增量優化：新增首頁根路徑霓虹狀態儀表板，防範 404 誤判並方便手動喚醒
  * 🌟 緩存優化：為 polling 路由注入 No-Cache 標頭，防止 iOS/Safari 強力快取導致狀態卡死不更新
+ * 🌟 頻寬救星：優化 /api/admin/all-tasks 支援 ?lightweight=true，並新增獨立大圖單次下載 API 接口
  */
 const express = require('express');
 const cors = require('cors');
@@ -578,6 +579,56 @@ app.post('/api/choice/:taskId', async (req, res) => {
     res.json({ success: true });
 });
 
+// 🌟 新增：獲取單一特定任務的原始 Base64 照片 (避免在大名單輪詢中大量消耗頻寬)
+app.get('/api/admin/task-source-image/:taskId', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    const taskId = req.params.taskId;
+    let task = localTasksCache[taskId];
+
+    if (!task && useFirebase) {
+        try {
+            const docRef = doc(db, 'artifacts', appId, 'public', taskId);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                task = docSnap.data();
+                localTasksCache[taskId] = task;
+            }
+        } catch (e) {
+            console.error("❌ 讀取雲端原始照片失敗:", e.message);
+        }
+    }
+
+    if (!task) return res.status(404).json({ error: '找不到該任務' });
+    res.json({ success: true, sourceImage: task.sourceImage });
+});
+
+// 🌟 新增：獲取單一特定任務的風格生成大圖 (若為 Base64 格式則單次獲取緩存)
+app.get('/api/admin/task-result-images/:taskId', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    const taskId = req.params.taskId;
+    let task = localTasksCache[taskId];
+
+    if (!task && useFirebase) {
+        try {
+            const docRef = doc(db, 'artifacts', appId, 'public', taskId);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                task = docSnap.data();
+                localTasksCache[taskId] = task;
+            }
+        } catch (e) {
+            console.error("❌ 讀取雲端結果大圖失敗:", e.message);
+        }
+    }
+
+    if (!task) return res.status(404).json({ error: '找不到該任務' });
+    res.json({ 
+        success: true, 
+        resultImageA: task.resultImageA, 
+        resultImageB: task.resultImageB 
+    });
+});
+
 app.get('/api/admin/all-tasks', async (req, res) => {
     // 🌟 緩存優化：強烈指示管理員控制台不要讀取本機快取名單，確保流暢更新
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -596,6 +647,31 @@ app.get('/api/admin/all-tasks', async (req, res) => {
         }
     }
     const all = Object.values(localTasksCache).sort((a, b) => a.id.localeCompare(b.id));
+
+    // 🌟 核心頻寬防護鎖：當客戶端發送 ?lightweight=true 請求，後端將剔除超重 Base64 圖片編碼
+    if (req.query.lightweight === 'true') {
+        const lightweightTasks = all.map(task => {
+            const t = { ...task };
+            
+            // 標記並移除超重原始客照
+            t.hasSourceImage = !!t.sourceImage;
+            delete t.sourceImage;
+
+            // 標記並移除超重 A、B 款大圖 (若為 Base64 的 data: 格式則刪除；若是外部 CDN 網址則保留)
+            t.hasResultImageA = !!t.resultImageA;
+            if (t.resultImageA && t.resultImageA.startsWith('data:')) {
+                delete t.resultImageA;
+            }
+            t.hasResultImageB = !!t.resultImageB;
+            if (t.resultImageB && t.resultImageB.startsWith('data:')) {
+                delete t.resultImageB;
+            }
+            
+            return t;
+        });
+        return res.json({ success: true, tasks: lightweightTasks });
+    }
+
     res.json({ success: true, tasks: all });
 });
 
