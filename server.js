@@ -1,8 +1,8 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
  * 🌟 串接功能：Leonardo.ai 官方 v2 API 雙模型智動化併發生圖
- * 🌟 規格對齊：100% 採用您原廠導出的 Style A/B 專屬 ID 與咒語細節
- * 🌟 降級保護：金鑰出錯時自動啟用安全手動流，且 API 接口完全向下相容昨日完美版 UI 
+ * 🌟 修正 Bug：精準修復官方 v1 上傳通道 (init-image) 404 找不到網址的問題
+ * 🌟 UI 協議：100% 向下相容昨日完美版 UI，前台不需任何更動
  */
 const express = require('express');
 const cors = require('cors');
@@ -91,10 +91,11 @@ async function triggerFeiePrint(task) {
     } catch (err) { console.error("❌ 飛鵝雲出單發送失敗:", err.message); }
 }
 
-// 核心功能：將客人的原圖上傳至 Leonardo S3 暫存 (附帶深度除錯日誌)
+// 🌟 核心破案修正：正確的官方 v1 上傳通道 (init-image)
 async function uploadToLeonardoS3(base64Image) {
     try {
-        const initUploadRes = await fetch('https://cloud.leonardo.ai/api/rest/v2/images/upload', {
+        // 使用正確的 v1 網址，消滅 404 Endpoint not found 錯誤！
+        const initUploadRes = await fetch('https://cloud.leonardo.ai/api/rest/v1/init-image', {
             method: 'POST',
             headers: {
                 'accept': 'application/json',
@@ -104,19 +105,20 @@ async function uploadToLeonardoS3(base64Image) {
             body: JSON.stringify({ "extension": "jpg" })
         });
         
-        // 🌟 核心排錯監控：如果這裡被拒絕，立刻把官方吐出來的真正原因印到 Render 畫面上！
         if (!initUploadRes.ok) {
             const errorDetail = await initUploadRes.text();
-            console.error(`❌ Leonardo 預簽名申請失敗！狀態碼: ${initUploadRes.status}, 官方核心拒絕原因: ${errorDetail}`);
             throw new Error(`官方認證拒絕: ${errorDetail}`);
         }
 
         const uploadData = await initUploadRes.json();
-        if (!uploadData.uploadImage) {
-            throw new Error("無法取得 uploadImage 結構，可能帳號餘額正在同步中。");
+        // Leonardo v1 回傳的結構是 uploadInitImage
+        const initImageData = uploadData.uploadInitImage;
+        
+        if (!initImageData) {
+            throw new Error("無法取得上傳授權，官方回傳結構異常。");
         }
 
-        const { id, uploadUrl, fields } = uploadData.uploadImage;
+        const { id, url, fields } = initImageData;
         const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
         const imageBuffer = Buffer.from(base64Data, 'base64');
 
@@ -125,7 +127,7 @@ async function uploadToLeonardoS3(base64Image) {
         Object.entries(s3Fields).forEach(([key, value]) => { formData.append(key, value); });
         formData.append('file', new Blob([imageBuffer], { type: 'image/jpeg' }), 'image.jpg');
 
-        const s3UploadRes = await fetch(uploadUrl, { method: 'POST', body: formData });
+        const s3UploadRes = await fetch(url, { method: 'POST', body: formData });
         if (s3UploadRes.status >= 200 && s3UploadRes.status < 300) {
             console.log(`✅ 客人照片成功上傳 Leonardo S3！取得 ID: ${id}`);
             return id;
