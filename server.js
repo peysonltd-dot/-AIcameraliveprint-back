@@ -1,7 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
- * 🌟 破關修正 1：精準解析 v2 官方回條 (generate.generationId)，徹底解決誤判！
- * 🌟 破關修正 2：加回 lightweight=true 流量過濾器，確保輪詢流量降回 2KB！
+ * 🌟 破關修正 3：精準修復「輪詢取件」通道為官方穩定的 v1 網址，徹底解決前台收不到圖的問題！
  */
 const express = require('express');
 const cors = require('cors');
@@ -40,9 +39,7 @@ if (process.env.FIREBASE_CONFIG) {
         useFirebase = true;
         console.log("🔥 Firebase 雲端資料庫連線成功！");
         syncTicketCounterFromCloud();
-    } catch (e) {
-        console.error("❌ Firebase 初始化失敗:", e.message);
-    }
+    } catch (e) { console.error("❌ Firebase 初始化失敗:", e.message); }
 }
 
 async function syncTicketCounterFromCloud() {
@@ -142,7 +139,6 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
             }).then(r => r.json())
         ]);
 
-        // 🌟 終極破案修正：正確抓取 v2 的 generate.generationId，徹底解決排程失敗！
         const genIdA = genRequestA.generate?.generationId || genRequestA.generationId || genRequestA.sdGenerationJob?.generationId;
         const genIdB = genRequestB.generate?.generationId || genRequestB.generationId || genRequestB.sdGenerationJob?.generationId;
 
@@ -163,21 +159,26 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
     }
 }
 
+// 🌟 終極破關：使用官方穩定的 v1 網址領取成品
 async function pollAndSaveResults(taskId, genIdA, genIdB) {
-    let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 15; 
+    let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 20; // 最長等待約 40 秒
     while (attempts < maxAttempts && (!resultA || !resultB)) {
         await new Promise(r => setTimeout(r, 2000)); attempts++;
         try {
             if (!resultA) {
-                const resA = await fetch(`https://cloud.leonardo.ai/api/rest/v2/generations/${genIdA}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
-                if (resA.generations_by_pk?.status === "COMPLETE" && resA.generations_by_pk.generated_images.length > 0) {
-                    resultA = resA.generations_by_pk.generated_images[0].url; localTasksCache[taskId].resultImageA = resultA;
+                // 修正為 v1 網址
+                const resA = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdA}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
+                const jobA = resA.generations_by_pk;
+                if (jobA && jobA.status === "COMPLETE" && jobA.generated_images && jobA.generated_images.length > 0) {
+                    resultA = jobA.generated_images[0].url; localTasksCache[taskId].resultImageA = resultA;
                 }
             }
             if (!resultB) {
-                const resB = await fetch(`https://cloud.leonardo.ai/api/rest/v2/generations/${genIdB}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
-                if (resB.generations_by_pk?.status === "COMPLETE" && resB.generations_by_pk.generated_images.length > 0) {
-                    resultB = resB.generations_by_pk.generated_images[0].url; localTasksCache[taskId].resultImageB = resultB;
+                // 修正為 v1 網址
+                const resB = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdB}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
+                const jobB = resB.generations_by_pk;
+                if (jobB && jobB.status === "COMPLETE" && jobB.generated_images && jobB.generated_images.length > 0) {
+                    resultB = jobB.generated_images[0].url; localTasksCache[taskId].resultImageB = resultB;
                 }
             }
             if (resultA && resultB) {
@@ -187,6 +188,11 @@ async function pollAndSaveResults(taskId, genIdA, genIdB) {
                 break;
             }
         } catch (e) { console.error(`⚠️ 輪詢 #${taskId} 異常:`, e.message); }
+    }
+    
+    // 如果 40 秒後還是沒拿到圖，印出超時警告，讓手動後台可以介入
+    if (!resultA || !resultB) {
+        console.log(`⏳ 號碼牌 #${taskId} 官方生圖較慢或超時，已轉交手動後台接手。`);
     }
 }
 
@@ -242,7 +248,6 @@ app.post('/api/choice/:taskId', async (req, res) => {
     res.json({ success: true });
 });
 
-// 🌟 流量修復：裝回 lightweight 過濾器，拯救您的頻寬！
 app.get('/api/admin/all-tasks', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     if (useFirebase) {
