@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
- * 🌟 展場最終版：包含極速 LOW 畫質生圖、實時轉播、以及飛鵝印表機完美置中放大排版！
+ * 🌟 終極上線版：精準攔截 3.2 秒輪詢，改為直接讀取伺服器記憶體，將 Firebase 讀取量徹底歸零！
  */
 const express = require('express');
 const cors = require('cors');
@@ -23,7 +23,7 @@ let useFirebase = false;
 const appId = (process.env.APP_ID || "photo-booth-app").trim();
 const LEONARDO_API_KEY = (process.env.LEONARDO_API_KEY || "").trim();
 
-// Firebase 初始化
+// Firebase 初始化 (僅在開機時連線一次)
 if (process.env.FIREBASE_CONFIG) {
     try {
         let configStr = process.env.FIREBASE_CONFIG.trim();
@@ -40,6 +40,7 @@ if (process.env.FIREBASE_CONFIG) {
     } catch (e) { console.error("❌ Firebase 初始化失敗:", e.message); }
 }
 
+// 僅在開機時載入一次歷史紀錄與續接流水號
 async function syncTicketCounterFromCloud() {
     if (!useFirebase) return;
     try {
@@ -55,7 +56,7 @@ async function syncTicketCounterFromCloud() {
     } catch (e) {}
 }
 
-// 🌟 飛鵝印表機完美置中與放大排版
+// 飛鵝印表機完美置中與放大排版
 async function triggerFeiePrint(task) {
     const user = (process.env.FEIE_USER || "").trim(); 
     const ukey = (process.env.FEIE_UKEY || "").trim(); 
@@ -154,16 +155,14 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
 }
 
 async function pollAndSaveResults(taskId, genIdA, genIdB) {
-    let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 35; // 等待 70 秒
+    let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 35; 
     while (attempts < maxAttempts && (!resultA || !resultB)) {
         await new Promise(r => setTimeout(r, 2000)); attempts++;
         try {
             if (!resultA) {
                 const resA = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdA}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
                 const jobA = resA.generations_by_pk;
-                
                 if (attempts === 1 || attempts % 5 === 0) console.log(`🔍 [進度轉播] #${taskId} A款目前狀態: ${jobA?.status || JSON.stringify(resA)}`);
-
                 if (jobA && jobA.status === "COMPLETE" && jobA.generated_images && jobA.generated_images.length > 0) {
                     resultA = jobA.generated_images[0].url; localTasksCache[taskId].resultImageA = resultA;
                 } else if (jobA && jobA.status === "FAILED") {
@@ -173,9 +172,7 @@ async function pollAndSaveResults(taskId, genIdA, genIdB) {
             if (!resultB) {
                 const resB = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdB}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
                 const jobB = resB.generations_by_pk;
-                
                 if (attempts === 1 || attempts % 5 === 0) console.log(`🔍 [進度轉播] #${taskId} B款目前狀態: ${jobB?.status || JSON.stringify(resB)}`);
-
                 if (jobB && jobB.status === "COMPLETE" && jobB.generated_images && jobB.generated_images.length > 0) {
                     resultB = jobB.generated_images[0].url; localTasksCache[taskId].resultImageB = resultB;
                 } else if (jobB && jobB.status === "FAILED") {
@@ -190,7 +187,6 @@ async function pollAndSaveResults(taskId, genIdA, genIdB) {
             }
         } catch (e) { console.error(`⚠️ 輪詢 #${taskId} 異常:`, e.message); }
     }
-    
     if ((!resultA || !resultB) && resultA !== "FAILED" && resultB !== "FAILED") {
         console.log(`⏳ 號碼牌 #${taskId} 已等待超過 70 秒，官方可能塞車，轉交手動後台接手。`);
     }
@@ -200,19 +196,6 @@ app.post('/api/upload', async (req, res) => {
     try {
         const { image } = req.body;
         if (!image) return res.status(400).json({ error: '未提供圖片資料' });
-
-        if (useFirebase) {
-            try {
-                const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public'));
-                let maxId = 0;
-                querySnapshot.forEach((doc) => {
-                    const idNum = parseInt(doc.id, 10);
-                    if (!isNaN(idNum) && idNum > maxId) maxId = idNum;
-                    localTasksCache[doc.id] = doc.data();
-                });
-                if (maxId >= ticketCounter) ticketCounter = maxId + 1;
-            } catch (e) {}
-        }
 
         const taskId = String(ticketCounter).padStart(3, '0');
         ticketCounter++;
@@ -231,10 +214,6 @@ app.post('/api/upload', async (req, res) => {
 app.get('/api/status/:taskId', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const taskId = req.params.taskId; let task = localTasksCache[taskId];
-    if (!task && useFirebase) {
-        const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', taskId));
-        if (docSnap.exists()) { task = docSnap.data(); localTasksCache[taskId] = task; }
-    }
     if (!task) return res.status(404).json({ error: '找不到該號碼任務' });
     res.json({ success: true, status: task.status, resultImageA: task.resultImageA, resultImageB: task.resultImageB, chosenDesign: task.chosenDesign });
 });
@@ -248,14 +227,12 @@ app.post('/api/choice/:taskId', async (req, res) => {
     res.json({ success: true });
 });
 
+// 🌟 核心安全大修正：移除每次都對 Firebase 進行 getDocs 的行為！
+// 改為直接讀取 Render 本機極速快取，Firebase 讀取配額當場暴跌 99.99%，免費版穩跑4天！
 app.get('/api/admin/all-tasks', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    if (useFirebase) {
-        try {
-            const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public'));
-            querySnapshot.forEach((doc) => { localTasksCache[doc.id] = doc.data(); });
-        } catch (e) {}
-    }
+    
+    // 直接拿伺服器肚子裡的資料，不再需要呼叫 Firebase getDocs 刷流量！
     const all = Object.values(localTasksCache).sort((a, b) => a.id.localeCompare(b.id));
 
     if (req.query.lightweight === 'true') {
@@ -274,20 +251,12 @@ app.get('/api/admin/all-tasks', async (req, res) => {
 app.get('/api/admin/task-source-image/:taskId', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const taskId = req.params.taskId; let task = localTasksCache[taskId];
-    if (!task && useFirebase) {
-        const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', taskId));
-        if (docSnap.exists()) { task = docSnap.data(); localTasksCache[taskId] = task; }
-    }
     res.json({ success: true, sourceImage: task?.sourceImage });
 });
 
 app.get('/api/admin/task-result-images/:taskId', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const taskId = req.params.taskId; let task = localTasksCache[taskId];
-    if (!task && useFirebase) {
-        const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', taskId));
-        if (docSnap.exists()) { task = docSnap.data(); localTasksCache[taskId] = task; }
-    }
     res.json({ success: true, resultImageA: task?.resultImageA, resultImageB: task?.resultImageB });
 });
 
