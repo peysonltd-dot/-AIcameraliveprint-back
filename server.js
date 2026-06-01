@@ -1,28 +1,152 @@
-// ==========================================
-// 【原廠雙模型網址直連完全體】100% 對齊 Get API Code 參數與雙畫風 ID
-// ==========================================
-async function generateLeonardoDualStyles(taskId, base64Image) {
-    try {
-        console.log(`⚡ [核心自動化啟動] 正在為號碼牌 #${taskId} 進行雲端網址同步與智慧緩衝...`);
-        
-        // 💡 智慧緩衝防禦鎖：強迫伺服器在背景靜止等候 3.5 秒
-        // 這能確保客人的原照已經 100% 在 Firebase 雲端資料庫「生成完畢並亮起公開網址」，防範 Leonardo 抓空！
-        await new Promise(r => setTimeout(r, 3500));
+/**
+ * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
+ * 🌟 串接功能：Leonardo.ai 官方 v2 API 雙模型智動化併發生圖
+ * 🌟 規格對齊：100% 採用您原廠導出的 Style A/B 專屬 ID 與咒語細節
+ * 🌟 降級保護：金鑰出錯時自動啟用安全手動流，且 API 接口完全向下相容昨日完美版 UI 
+ */
+const express = require('express');
+const cors = require('cors');
+const crypto = require('crypto');
+const { initializeApp } = require('firebase/app');
+const { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc } = require('firebase/firestore');
 
-        let guestPhotoUrl = localTasksCache[taskId]?.sourceImage;
+const app = express();
+const PORT = process.env.PORT || 10000; 
+
+app.use(cors());
+app.use(express.json({ limit: '60mb' }));
+app.use(express.urlencoded({ limit: '60mb', extended: true }));
+
+let localTasksCache = {};
+let ticketCounter = 1;
+let db;
+let useFirebase = false;
+
+const appId = (process.env.APP_ID || "photo-booth-app").trim();
+const LEONARDO_API_KEY = (process.env.LEONARDO_API_KEY || "").trim();
+
+// Firebase Firestore 初始化
+if (process.env.FIREBASE_CONFIG) {
+    try {
+        let configStr = process.env.FIREBASE_CONFIG.trim();
+        let firebaseConfig;
+        try {
+            firebaseConfig = JSON.parse(configStr);
+        } catch (jsonErr) {
+            let formatted = configStr.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g, '"'); 
+            firebaseConfig = JSON.parse(formatted);
+        }
+        const firebaseApp = initializeApp(firebaseConfig);
+        db = getFirestore(firebaseApp);
+        useFirebase = true;
+        console.log("🔥 Firebase Firestore 雲端資料庫連線成功！");
+        syncTicketCounterFromCloud();
+    } catch (e) {
+        console.error("❌ Firebase 初始化失敗，已安全降級為本機暫存模式:", e.message);
+    }
+}
+
+async function syncTicketCounterFromCloud() {
+    if (!useFirebase) return;
+    try {
+        const tasksCol = collection(db, 'artifacts', appId, 'public');
+        const querySnapshot = await getDocs(tasksCol);
+        let maxId = 0;
+        querySnapshot.forEach((doc) => {
+            const idNum = parseInt(doc.id, 10);
+            if (!isNaN(idNum) && idNum > maxId) maxId = idNum;
+            localTasksCache[doc.id] = doc.data();
+        });
+        ticketCounter = maxId + 1;
+        console.log(`🎯 流水號續接成功！下一位排隊號碼將為：#${String(ticketCounter).padStart(3, '0')}`);
+    } catch (e) { console.error("❌ 續接流水號失敗:", e.message); }
+}
+
+// 飛鵝雲端自動出單
+async function triggerFeiePrint(task) {
+    const user = (process.env.FEIE_USER || "").trim();
+    const ukey = (process.env.FEIE_UKEY || "").trim();
+    const sn = (process.env.FEIE_SN || "961820398").trim(); 
+
+    if (!user || !ukey) return;
+
+    const stime = Math.floor(Date.now() / 1000);
+    const sig = crypto.createHash('sha1').update(user + ukey + stime).digest('hex');
+
+    let content = `<CB><B>專屬禮品兌換</B></CB><BR><BR>`;
+    content += `--------------------------------<BR>`;
+    content += `<CB><B>${task.id}</B></CB><BR>`;
+    content += `--------------------------------<BR>`;
+    content += `排隊時間：${task.createdAt}<BR>`;
+    content += `--------------------------------<BR>`;
+    content += `<B>領取說明：</B><BR>領取時請出示此號碼牌<BR>交由工作人員兌換您的禮品<BR><BR>`;
+    content += `<CB>～感謝您的參與～</CB><BR><CB>～祝您體驗愉快～</CB><BR>`;
+
+    const params = new URLSearchParams();
+    params.append('user', user); params.append('stime', stime.toString()); params.append('sig', sig);
+    params.append('apiname', 'Open_printMsg'); params.append('sn', sn); params.append('content', content); params.append('times', '1');
+
+    try {
+        await fetch('https://api.jp.feieyun.com/Api/Open/', { method: 'POST', body: params, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    } catch (err) { console.error("❌ 飛鵝雲出單發送失敗:", err.message); }
+}
+
+// 核心功能：將客人的原圖上傳至 Leonardo S3 暫存 (附帶深度除錯日誌)
+async function uploadToLeonardoS3(base64Image) {
+    try {
+        const initUploadRes = await fetch('https://cloud.leonardo.ai/api/rest/v2/images/upload', {
+            method: 'POST',
+            headers: {
+                'accept': 'application/json',
+                'authorization': `Bearer ${LEONARDO_API_KEY}`,
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({ "extension": "jpg" })
+        });
         
-        // 智慧安全性降級安全網
-        if (!guestPhotoUrl || !guestPhotoUrl.startsWith('http')) {
-            console.log(`ℹ️ 號碼牌 #${taskId} 檢測到非外部網路網址，已自動降級退回「省流量手動控制流程」，確保現場不卡死！`);
-            return;
+        // 🌟 核心排錯監控：如果這裡被拒絕，立刻把官方吐出來的真正原因印到 Render 畫面上！
+        if (!initUploadRes.ok) {
+            const errorDetail = await initUploadRes.text();
+            console.error(`❌ Leonardo 預簽名申請失敗！狀態碼: ${initUploadRes.status}, 官方核心拒絕原因: ${errorDetail}`);
+            throw new Error(`官方認證拒絕: ${errorDetail}`);
         }
 
-        console.log(`🚀 網址對齊成功！正在發送 100% 官方原廠規格之 v2 雙軌併發請求...`);
+        const uploadData = await initUploadRes.json();
+        if (!uploadData.uploadImage) {
+            throw new Error("無法取得 uploadImage 結構，可能帳號餘額正在同步中。");
+        }
+
+        const { id, uploadUrl, fields } = uploadData.uploadImage;
+        const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+
+        const s3Fields = JSON.parse(fields);
+        const formData = new FormData();
+        Object.entries(s3Fields).forEach(([key, value]) => { formData.append(key, value); });
+        formData.append('file', new Blob([imageBuffer], { type: 'image/jpeg' }), 'image.jpg');
+
+        const s3UploadRes = await fetch(uploadUrl, { method: 'POST', body: formData });
+        if (s3UploadRes.status >= 200 && s3UploadRes.status < 300) {
+            console.log(`✅ 客人照片成功上傳 Leonardo S3！取得 ID: ${id}`);
+            return id;
+        } else {
+            throw new Error(`S3 實體通道上傳失敗，狀態碼: ${s3UploadRes.status}`);
+        }
+    } catch (err) {
+        console.error("❌ uploadToLeonardoS3 出錯:", err.message);
+        throw err;
+    }
+}
+
+// 核心功能：原廠雙模型併發生圖與背景定時輪詢
+async function generateLeonardoDualStyles(taskId, base64Image) {
+    try {
+        const guestImageId = await uploadToLeonardoS3(base64Image);
+
+        console.log(`⚡ 啟動 Promise.all 雙通道，對 Leonardo 併發雙模型生圖請求...`);
 
         const [genRequestA, genRequestB] = await Promise.all([
-            // ==========================================
-            // 🎨 風格 A 請求：Auto 模型 (gemini-2.5-flash-image)
-            // ==========================================
+            // 🎨 風格 A 請求：Auto 模型 (gemini-2.5-flash-image) - 100% 對齊原廠參數
             fetch('https://cloud.leonardo.ai/api/rest/v2/generations', {
                 method: 'POST',
                 headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
@@ -30,33 +154,15 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
                     "model": "gemini-2.5-flash-image",
                     "public": false,
                     "parameters": {
-                        "height": 1024,
-                        "width": 1024,
-                        "prompt_enhance": "OFF",
-                        "quantity": 1,
-                        "style_ids": [
-                            "6fedbf1f-4a17-45ec-84fb-92fe524a29ef" // 🌟 100% 對齊原廠風格 A 專屬花色 ID
-                        ],
+                        "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1,
+                        "style_ids": ["6fedbf1f-4a17-45ec-84fb-92fe524a29ef"], // 🌟 您的原廠風格 A 專屬花色 ID
                         "prompt": "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., round eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean  background.",
-                        "guidances": {
-                            "image_reference": [
-                                {
-                                    // 💡 隔空破關：改用 URL 直連網址格式，徹底繞過卡住的 S3 上傳錯誤
-                                    "image": {
-                                        "url": guestPhotoUrl,
-                                        "type": "URL"
-                                    },
-                                    "strength": "MID"
-                                }
-                            ]
-                        }
+                        "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] }
                     }
                 })
             }).then(r => r.json()),
 
-            // ==========================================
-            // 🎨 風格 B 請求：GPT Image 2.0 模型 (gpt-image-2)
-            // ==========================================
+            // 🎨 風格 B 請求：GPT Image 2.0 模型 (gpt-image-2) - 100% 對齊原廠參數
             fetch('https://cloud.leonardo.ai/api/rest/v2/generations', {
                 method: 'POST',
                 headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
@@ -64,43 +170,154 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
                     "model": "gpt-image-2",
                     "public": false,
                     "parameters": {
-                        "height": 1024,
-                        "width": 1024,
-                        "prompt_enhance": "OFF",
-                        "quantity": 1,
-                        "style_ids": [
-                            "645e4195-f63d-4715-a3f2-3fb1e6eb8c70" // 🌟 100% 對齊原廠風格 B 專屬花色 ID
-                        ],
+                        "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1,
+                        "style_ids": ["645e4195-f63d-4715-a3f2-3fb1e6eb8c70"], // 🌟 您的原廠風格 B 專屬花色 ID
                         "prompt": "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., bean eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean  background.",
-                        "guidances": {
-                            "image_reference": [
-                                {
-                                    "image": {
-                                        "url": guestPhotoUrl,
-                                        "type": "URL"
-                                    },
-                                    "strength": "MID"
-                                }
-                            ]
-                        }
+                        "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] }
                     }
                 })
             }).then(r => r.json())
         ]);
 
-        // 提取排程任務 Job ID
         const genIdA = genRequestA.sdGenerationJob?.generationId;
         const genIdB = genRequestB.sdGenerationJob?.generationId;
 
-        if (!genIdA || !genIdB) {
-            console.log(`ℹ️ [自動降級提示] 官方金鑰目前返回審查忙碌，系統已秒速將此單無痛同步至手動控制台，保障展場絕對不停機！`);
-            return;
-        }
+        if (!genIdA || !genIdB) throw new Error("生圖任務排程失敗，請看 Render 上方的詳細錯誤日誌！");
 
-        console.log(`🎯 [自動化全面破關] 雙模型任務已成功在 Leonardo 雲端排程！開始定時非同步監聽回傳...`);
+        console.log(`🎯 Leonardo 雙模生圖已在背景啟動！Job A: ${genIdA} | Job B: ${genIdB}`);
         pollAndSaveResults(taskId, genIdA, genIdB);
 
     } catch (err) {
-        console.error(`❌ 自動化中樞大腦處理異常 (#${taskId}):`, err.message);
+        console.error(`❌ 自動化生圖失敗 (#${taskId}):`, err.message);
+        if (localTasksCache[taskId]) {
+            localTasksCache[taskId].remark = `自動生圖失敗原因：${err.message}`;
+            if (useFirebase) updateDoc(doc(db, 'artifacts', appId, 'public', taskId), { remark: localTasksCache[taskId].remark });
+        }
     }
 }
+
+async function pollAndSaveResults(taskId, genIdA, genIdB) {
+    let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 12; 
+    while (attempts < maxAttempts && (!resultA || !resultB)) {
+        await new Promise(r => setTimeout(r, 1500)); attempts++;
+        try {
+            if (!resultA) {
+                const resA = await fetch(`https://cloud.leonardo.ai/api/rest/v2/generations/${genIdA}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
+                const job = resA.generations_by_pk;
+                if (job && job.status === "COMPLETE" && job.generated_images.length > 0) {
+                    resultA = job.generated_images[0].url; localTasksCache[taskId].resultImageA = resultA;
+                }
+            }
+            if (!resultB) {
+                const resB = await fetch(`https://cloud.leonardo.ai/api/rest/v2/generations/${genIdB}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
+                const job = resB.generations_by_pk;
+                if (job && job.status === "COMPLETE" && job.generated_images.length > 0) {
+                    resultB = job.generated_images[0].url; localTasksCache[taskId].resultImageB = resultB;
+                }
+            }
+            if (resultA && resultB) {
+                localTasksCache[taskId].status = 'completed';
+                if (useFirebase) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', taskId), { resultImageA: resultA, resultImageB: resultB, status: 'completed' });
+                }
+                console.log(`🎉 號碼牌 #${taskId} 雙風格全自動生成成功並同步完畢！`);
+                break;
+            }
+        } catch (e) { console.error(`⚠️ 輪詢號碼牌 #${taskId} 短暫異常:`, e.message); }
+    }
+}
+
+// 100% 保持您昨日完美版的 API 數據契約，不改動任何欄位
+app.post('/api/upload', async (req, res) => {
+    try {
+        const { image } = req.body;
+        if (!image) return res.status(400).json({ error: '未提供圖片資料' });
+
+        if (useFirebase) {
+            try {
+                const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public'));
+                let maxId = 0;
+                querySnapshot.forEach((document) => {
+                    const idNum = parseInt(document.id, 10);
+                    if (!isNaN(idNum) && idNum > maxId) maxId = idNum;
+                    localTasksCache[document.id] = document.data();
+                });
+                if (maxId >= ticketCounter) ticketCounter = maxId + 1;
+            } catch (e) {}
+        }
+
+        const taskId = String(ticketCounter).padStart(3, '0');
+        ticketCounter++;
+
+        const newTask = {
+            id: taskId, sourceImage: image, status: 'pending', resultImageA: null, resultImageB: null, chosenDesign: null, processStatus: '製作中', remark: '',
+            createdAt: new Date().toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }) 
+        };
+
+        localTasksCache[taskId] = newTask;
+        if (useFirebase) await setDoc(doc(db, 'artifacts', appId, 'public', taskId), newTask);
+
+        console.log(`🎫 新任務建立：排隊號碼 #${taskId}`);
+        res.json({ success: true, taskId: taskId });
+
+        if (LEONARDO_API_KEY) {
+            generateLeonardoDualStyles(taskId, image);
+        } else {
+            console.log(`ℹ️ 未偵測到 LEONARDO_API_KEY，安全啟用手動流`);
+        }
+    } catch (error) { res.status(500).json({ error: '伺服器錯誤' }); }
+});
+
+app.get('/api/status/:taskId', async (req, res) => {
+    const taskId = req.params.taskId; let task = localTasksCache[taskId];
+    if (!task && useFirebase) {
+        const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', taskId));
+        if (docSnap.exists()) { task = docSnap.data(); localTasksCache[taskId] = task; }
+    }
+    if (!task) return res.status(404).json({ error: '找不到該號碼任務' });
+    res.json({ success: true, status: task.status, resultImageA: task.resultImageA, resultImageB: task.resultImageB, chosenDesign: task.chosenDesign });
+});
+
+app.post('/api/choice/:taskId', async (req, res) => {
+    const taskId = req.params.taskId; const { choice } = req.body; const task = localTasksCache[taskId];
+    if (!task) return res.status(404).json({ error: '找不到該任務' });
+    task.chosenDesign = choice;
+    triggerFeiePrint(task);
+    if (useFirebase) await updateDoc(doc(db, 'artifacts', appId, 'public', taskId), { chosenDesign: choice });
+    res.json({ success: true });
+});
+
+app.get('/api/admin/all-tasks', async (req, res) => {
+    if (useFirebase) {
+        try {
+            const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public'));
+            querySnapshot.forEach((doc) => { localTasksCache[doc.id] = doc.data(); });
+        } catch (e) {}
+    }
+    const all = Object.values(localTasksCache).sort((a, b) => a.id.localeCompare(b.id));
+    res.json({ success: true, tasks: all });
+});
+
+app.post('/api/admin/upload-result-dual/:taskId', async (req, res) => {
+    const taskId = req.params.taskId; const { resultImageA, resultImageB } = req.body; const task = localTasksCache[taskId];
+    if (!task) return res.status(404).json({ error: '找不到該任務' });
+    if (resultImageA) task.resultImageA = resultImageA; if (resultImageB) task.resultImageB = resultImageB;
+    if (task.resultImageA && task.resultImageB) task.status = 'completed';
+    if (useFirebase) await updateDoc(doc(db, 'artifacts', appId, 'public', taskId), { resultImageA: task.resultImageA, resultImageB: task.resultImageB, status: task.status });
+    res.json({ success: true });
+});
+
+app.post('/api/admin/reset-all', async (req, res) => {
+    try {
+        localTasksCache = {}; ticketCounter = 1;
+        if (useFirebase) {
+            const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public'));
+            const deletePromises = [];
+            querySnapshot.forEach((document) => { deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'public', document.id))); });
+            await Promise.all(deletePromises);
+        }
+        res.json({ success: true, message: "所有資料已重製" });
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+app.listen(PORT, () => { console.log(`🚀 雙重風格叫號伺服器運行中，監聽 PORT: ${PORT}`); });
