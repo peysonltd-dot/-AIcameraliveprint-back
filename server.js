@@ -1,7 +1,7 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
  * 🌟 串接功能：Leonardo.ai 官方 v2 API 雙模型智動化併發生圖
- * 🌟 修正 Bug：精準修復官方 v1 上傳通道 (init-image) 404 找不到網址的問題
+ * 🌟 修正 Bug：精準修復 v2 訂單編號 (generationId) 欄位解析，徹底解決排程失敗誤判
  * 🌟 UI 協議：100% 向下相容昨日完美版 UI，前台不需任何更動
  */
 const express = require('express');
@@ -91,10 +91,9 @@ async function triggerFeiePrint(task) {
     } catch (err) { console.error("❌ 飛鵝雲出單發送失敗:", err.message); }
 }
 
-// 🌟 核心破案修正：正確的官方 v1 上傳通道 (init-image)
+// 🌟 核心突破：正確的官方 v1 上傳通道 (init-image)
 async function uploadToLeonardoS3(base64Image) {
     try {
-        // 使用正確的 v1 網址，消滅 404 Endpoint not found 錯誤！
         const initUploadRes = await fetch('https://cloud.leonardo.ai/api/rest/v1/init-image', {
             method: 'POST',
             headers: {
@@ -111,12 +110,9 @@ async function uploadToLeonardoS3(base64Image) {
         }
 
         const uploadData = await initUploadRes.json();
-        // Leonardo v1 回傳的結構是 uploadInitImage
         const initImageData = uploadData.uploadInitImage;
         
-        if (!initImageData) {
-            throw new Error("無法取得上傳授權，官方回傳結構異常。");
-        }
+        if (!initImageData) throw new Error("無法取得上傳授權，官方回傳結構異常。");
 
         const { id, url, fields } = initImageData;
         const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
@@ -129,7 +125,7 @@ async function uploadToLeonardoS3(base64Image) {
 
         const s3UploadRes = await fetch(url, { method: 'POST', body: formData });
         if (s3UploadRes.status >= 200 && s3UploadRes.status < 300) {
-            console.log(`✅ 客人照片成功上傳 Leonardo S3！取得 ID: ${id}`);
+            console.log(`✅ 客人照片成功上傳 Leonardo S3! 取得 ID: ${id}`);
             return id;
         } else {
             throw new Error(`S3 實體通道上傳失敗，狀態碼: ${s3UploadRes.status}`);
@@ -147,8 +143,11 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
 
         console.log(`⚡ 啟動 Promise.all 雙通道，對 Leonardo 併發雙模型生圖請求...`);
 
+        const fixedPrompt = "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., round eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean  background.";
+        const fixedPromptB = "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., bean eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean  background.";
+
         const [genRequestA, genRequestB] = await Promise.all([
-            // 🎨 風格 A 請求：Auto 模型 (gemini-2.5-flash-image) - 100% 對齊原廠參數
+            // 🎨 風格 A 請求：Auto 模型 (gemini-2.5-flash-image)
             fetch('https://cloud.leonardo.ai/api/rest/v2/generations', {
                 method: 'POST',
                 headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
@@ -157,14 +156,14 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
                     "public": false,
                     "parameters": {
                         "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1,
-                        "style_ids": ["6fedbf1f-4a17-45ec-84fb-92fe524a29ef"], // 🌟 您的原廠風格 A 專屬花色 ID
-                        "prompt": "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., round eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean  background.",
+                        "style_ids": ["6fedbf1f-4a17-45ec-84fb-92fe524a29ef"], // 風格 A 特徵 ID
+                        "prompt": fixedPrompt,
                         "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] }
                     }
                 })
             }).then(r => r.json()),
 
-            // 🎨 風格 B 請求：GPT Image 2.0 模型 (gpt-image-2) - 100% 對齊原廠參數
+            // 🎨 風格 B 請求：GPT Image 2.0 模型 (gpt-image-2)
             fetch('https://cloud.leonardo.ai/api/rest/v2/generations', {
                 method: 'POST',
                 headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
@@ -173,18 +172,23 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
                     "public": false,
                     "parameters": {
                         "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1,
-                        "style_ids": ["645e4195-f63d-4715-a3f2-3fb1e6eb8c70"], // 🌟 您的原廠風格 B 專屬花色 ID
-                        "prompt": "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., bean eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean  background.",
+                        "style_ids": ["645e4195-f63d-4715-a3f2-3fb1e6eb8c70"], // 風格 B 特徵 ID
+                        "prompt": fixedPromptB,
                         "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] }
                     }
                 })
             }).then(r => r.json())
         ]);
 
-        const genIdA = genRequestA.sdGenerationJob?.generationId;
-        const genIdB = genRequestB.sdGenerationJob?.generationId;
+        // 🌟 核心破案修正：正確解析 v2 API 吐回來的訂單編號 (generationId)，並保留除錯明文！
+        const genIdA = genRequestA.generationId || genRequestA.sdGenerationJob?.generationId;
+        const genIdB = genRequestB.generationId || genRequestB.sdGenerationJob?.generationId;
 
-        if (!genIdA || !genIdB) throw new Error("生圖任務排程失敗，請看 Render 上方的詳細錯誤日誌！");
+        if (!genIdA || !genIdB) {
+            console.error("❌ 官方 API 拒絕生圖，A款回傳:", JSON.stringify(genRequestA));
+            console.error("❌ 官方 API 拒絕生圖，B款回傳:", JSON.stringify(genRequestB));
+            throw new Error("官方伺服器拒絕生圖參數，請看 Render 日誌明文原因");
+        }
 
         console.log(`🎯 Leonardo 雙模生圖已在背景啟動！Job A: ${genIdA} | Job B: ${genIdB}`);
         pollAndSaveResults(taskId, genIdA, genIdB);
@@ -198,20 +202,21 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
     }
 }
 
+// 確保輪詢使用最穩定的 v1 endpoint，防範格式遺失
 async function pollAndSaveResults(taskId, genIdA, genIdB) {
     let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 12; 
     while (attempts < maxAttempts && (!resultA || !resultB)) {
         await new Promise(r => setTimeout(r, 1500)); attempts++;
         try {
             if (!resultA) {
-                const resA = await fetch(`https://cloud.leonardo.ai/api/rest/v2/generations/${genIdA}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
+                const resA = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdA}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
                 const job = resA.generations_by_pk;
                 if (job && job.status === "COMPLETE" && job.generated_images.length > 0) {
                     resultA = job.generated_images[0].url; localTasksCache[taskId].resultImageA = resultA;
                 }
             }
             if (!resultB) {
-                const resB = await fetch(`https://cloud.leonardo.ai/api/rest/v2/generations/${genIdB}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
+                const resB = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdB}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
                 const job = resB.generations_by_pk;
                 if (job && job.status === "COMPLETE" && job.generated_images.length > 0) {
                     resultB = job.generated_images[0].url; localTasksCache[taskId].resultImageB = resultB;
@@ -229,7 +234,7 @@ async function pollAndSaveResults(taskId, genIdA, genIdB) {
     }
 }
 
-// 100% 保持您昨日完美版的 API 數據契約，不改動任何欄位
+// API 路由維持不變
 app.post('/api/upload', async (req, res) => {
     try {
         const { image } = req.body;
