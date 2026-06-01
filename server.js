@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
- * 🌟 破關修正 3：精準修復「輪詢取件」通道為官方穩定的 v1 網址，徹底解決前台收不到圖的問題！
+ * 🌟 破關修正 5：全自動化成功！新增 "quality": "LOW" 參數，降低點數消耗並提升生圖極速！
  */
 const express = require('express');
 const cors = require('cors');
@@ -28,9 +28,7 @@ if (process.env.FIREBASE_CONFIG) {
     try {
         let configStr = process.env.FIREBASE_CONFIG.trim();
         let firebaseConfig;
-        try {
-            firebaseConfig = JSON.parse(configStr);
-        } catch (jsonErr) {
+        try { firebaseConfig = JSON.parse(configStr); } catch (jsonErr) {
             let formatted = configStr.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g, '"'); 
             firebaseConfig = JSON.parse(formatted);
         }
@@ -58,9 +56,7 @@ async function syncTicketCounterFromCloud() {
 }
 
 async function triggerFeiePrint(task) {
-    const user = (process.env.FEIE_USER || "").trim();
-    const ukey = (process.env.FEIE_UKEY || "").trim();
-    const sn = (process.env.FEIE_SN || "961820398").trim(); 
+    const user = (process.env.FEIE_USER || "").trim(); const ukey = (process.env.FEIE_UKEY || "").trim(); const sn = (process.env.FEIE_SN || "961820398").trim(); 
     if (!user || !ukey) return;
 
     const stime = Math.floor(Date.now() / 1000);
@@ -71,16 +67,13 @@ async function triggerFeiePrint(task) {
     const params = new URLSearchParams();
     params.append('user', user); params.append('stime', stime.toString()); params.append('sig', sig);
     params.append('apiname', 'Open_printMsg'); params.append('sn', sn); params.append('content', content); params.append('times', '1');
-
     try { await fetch('https://api.jp.feieyun.com/Api/Open/', { method: 'POST', body: params, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); } catch (err) {}
 }
 
-// 核心上傳通道 (v1 init-image)
 async function uploadToLeonardoS3(base64Image) {
     try {
         const initUploadRes = await fetch('https://cloud.leonardo.ai/api/rest/v1/init-image', {
-            method: 'POST',
-            headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
+            method: 'POST', headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
             body: JSON.stringify({ "extension": "jpg" })
         });
         if (!initUploadRes.ok) throw new Error(await initUploadRes.text());
@@ -95,46 +88,34 @@ async function uploadToLeonardoS3(base64Image) {
 
         const s3UploadRes = await fetch(url, { method: 'POST', body: formData });
         if (s3UploadRes.status >= 200 && s3UploadRes.status < 300) {
-            console.log(`✅ 客人照片成功上傳 Leonardo S3! 取得 ID: ${id}`);
-            return id;
+            console.log(`✅ 客人照片成功上傳 Leonardo S3! 取得 ID: ${id}`); return id;
         } else { throw new Error(`S3 上傳失敗: ${s3UploadRes.status}`); }
     } catch (err) { throw err; }
 }
 
-// 核心功能：雙模型併發生圖
 async function generateLeonardoDualStyles(taskId, base64Image) {
     try {
         const guestImageId = await uploadToLeonardoS3(base64Image);
-        console.log(`⚡ 啟動 Promise.all 雙通道，對 Leonardo 併發雙模型生圖請求...`);
+        console.log(`⚡ 啟動 Promise.all 雙通道，對 Leonardo 併發雙模型生圖請求 (LOW Quality)...`);
 
         const promptA = "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., round eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean background.";
         const promptB = "Please analyze the physical characteristics of the person in the photo I uploaded (including hairstyle, hair color, clothing style and color, whether they wear glasses or have any special accessories). Then, retain these personal characteristics and reshape it into a new image with the following specific style:\n\nDetailed Style Specifications:\n\nMain Style: Minimalist hand-drawn chibi avatar.\n\nLine Strokes: Slightly thick black outlines with a hand-drawn feel, and rough edges resembling crayon or pencil strokes.\n\nColor and Shadows: Simple, flat coloring without complex gradients or shadows.\n\nFacial Features: Extremely simplified facial features (e.g., bean eyes, small nose), with two cute little wisps of light pink blush on the cheeks.\n\nBackground and Composition: Solid white clean background.";
 
         const [genRequestA, genRequestB] = await Promise.all([
             fetch('https://cloud.leonardo.ai/api/rest/v2/generations', {
-                method: 'POST',
-                headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
+                method: 'POST', headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
                 body: JSON.stringify({
                     "model": "gemini-2.5-flash-image", "public": false,
-                    "parameters": {
-                        "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1,
-                        "style_ids": ["6fedbf1f-4a17-45ec-84fb-92fe524a29ef"],
-                        "prompt": promptA,
-                        "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] }
-                    }
+                    // 🌟 加入了 "quality": "LOW"
+                    "parameters": { "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1, "quality": "LOW", "style_ids": ["6fedbf1f-4a17-45ec-84fb-92fe524a29ef"], "prompt": promptA, "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] } }
                 })
             }).then(r => r.json()),
             fetch('https://cloud.leonardo.ai/api/rest/v2/generations', {
-                method: 'POST',
-                headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
+                method: 'POST', headers: { 'accept': 'application/json', 'authorization': `Bearer ${LEONARDO_API_KEY}`, 'content-type': 'application/json' },
                 body: JSON.stringify({
                     "model": "gpt-image-2", "public": false,
-                    "parameters": {
-                        "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1,
-                        "style_ids": ["645e4195-f63d-4715-a3f2-3fb1e6eb8c70"],
-                        "prompt": promptB,
-                        "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] }
-                    }
+                    // 🌟 加入了 "quality": "LOW"
+                    "parameters": { "height": 1024, "width": 1024, "prompt_enhance": "OFF", "quantity": 1, "quality": "LOW", "style_ids": ["645e4195-f63d-4715-a3f2-3fb1e6eb8c70"], "prompt": promptB, "guidances": { "image_reference": [{ "image": { "id": guestImageId, "type": "UPLOADED" }, "strength": "MID" }] } }
                 })
             }).then(r => r.json())
         ]);
@@ -142,10 +123,7 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
         const genIdA = genRequestA.generate?.generationId || genRequestA.generationId || genRequestA.sdGenerationJob?.generationId;
         const genIdB = genRequestB.generate?.generationId || genRequestB.generationId || genRequestB.sdGenerationJob?.generationId;
 
-        if (!genIdA || !genIdB) {
-            console.error("❌ A款:", JSON.stringify(genRequestA)); console.error("❌ B款:", JSON.stringify(genRequestB));
-            throw new Error("無法取得官方任務 ID，請查看日誌。");
-        }
+        if (!genIdA || !genIdB) { throw new Error("無法取得官方任務 ID。"); }
 
         console.log(`🎯 Leonardo 雙模生圖已在背景啟動！Job A: ${genIdA} | Job B: ${genIdB}`);
         pollAndSaveResults(taskId, genIdA, genIdB);
@@ -159,29 +137,36 @@ async function generateLeonardoDualStyles(taskId, base64Image) {
     }
 }
 
-// 🌟 終極破關：使用官方穩定的 v1 網址領取成品
 async function pollAndSaveResults(taskId, genIdA, genIdB) {
-    let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 20; // 最長等待約 40 秒
+    let resultA = null; let resultB = null; let attempts = 0; const maxAttempts = 35; // 等待 70 秒
     while (attempts < maxAttempts && (!resultA || !resultB)) {
         await new Promise(r => setTimeout(r, 2000)); attempts++;
         try {
             if (!resultA) {
-                // 修正為 v1 網址
                 const resA = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdA}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
                 const jobA = resA.generations_by_pk;
+                
+                if (attempts === 1 || attempts % 5 === 0) console.log(`🔍 [進度轉播] #${taskId} A款目前狀態: ${jobA?.status || JSON.stringify(resA)}`);
+
                 if (jobA && jobA.status === "COMPLETE" && jobA.generated_images && jobA.generated_images.length > 0) {
                     resultA = jobA.generated_images[0].url; localTasksCache[taskId].resultImageA = resultA;
+                } else if (jobA && jobA.status === "FAILED") {
+                    console.log(`❌ [警告] #${taskId} A款被官方退件 (FAILED)`); resultA = "FAILED";
                 }
             }
             if (!resultB) {
-                // 修正為 v1 網址
                 const resB = await fetch(`https://cloud.leonardo.ai/api/rest/v1/generations/${genIdB}`, { headers: { 'authorization': `Bearer ${LEONARDO_API_KEY}` } }).then(r => r.json());
                 const jobB = resB.generations_by_pk;
+                
+                if (attempts === 1 || attempts % 5 === 0) console.log(`🔍 [進度轉播] #${taskId} B款目前狀態: ${jobB?.status || JSON.stringify(resB)}`);
+
                 if (jobB && jobB.status === "COMPLETE" && jobB.generated_images && jobB.generated_images.length > 0) {
                     resultB = jobB.generated_images[0].url; localTasksCache[taskId].resultImageB = resultB;
+                } else if (jobB && jobB.status === "FAILED") {
+                    console.log(`❌ [警告] #${taskId} B款被官方退件 (FAILED)`); resultB = "FAILED";
                 }
             }
-            if (resultA && resultB) {
+            if (resultA && resultB && resultA !== "FAILED" && resultB !== "FAILED") {
                 localTasksCache[taskId].status = 'completed';
                 if (useFirebase) await updateDoc(doc(db, 'artifacts', appId, 'public', taskId), { resultImageA: resultA, resultImageB: resultB, status: 'completed' });
                 console.log(`🎉 號碼牌 #${taskId} 雙風格全自動生成成功並同步完畢！`);
@@ -190,9 +175,8 @@ async function pollAndSaveResults(taskId, genIdA, genIdB) {
         } catch (e) { console.error(`⚠️ 輪詢 #${taskId} 異常:`, e.message); }
     }
     
-    // 如果 40 秒後還是沒拿到圖，印出超時警告，讓手動後台可以介入
-    if (!resultA || !resultB) {
-        console.log(`⏳ 號碼牌 #${taskId} 官方生圖較慢或超時，已轉交手動後台接手。`);
+    if ((!resultA || !resultB) && resultA !== "FAILED" && resultB !== "FAILED") {
+        console.log(`⏳ 號碼牌 #${taskId} 已等待超過 70 秒，官方可能塞車，轉交手動後台接手。`);
     }
 }
 
