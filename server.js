@@ -1,6 +1,6 @@
 /**
  * AI 互動雷雕拍照系統 - 後端 API (Firebase 雲端同步 & 飛鵝出票機防當機完全體版)
- * 🌟 終極上線版：精準攔截 3.2 秒輪詢，改為直接讀取伺服器記憶體，將 Firebase 讀取量徹底歸零！
+ * 🌟 終極上線版：包含極速記憶體快取、LOW 畫質生圖、完美出票排版，以及狀態備註同步儲存！
  */
 const express = require('express');
 const cors = require('cors');
@@ -227,12 +227,8 @@ app.post('/api/choice/:taskId', async (req, res) => {
     res.json({ success: true });
 });
 
-// 🌟 核心安全大修正：移除每次都對 Firebase 進行 getDocs 的行為！
-// 改為直接讀取 Render 本機極速快取，Firebase 讀取配額當場暴跌 99.99%，免費版穩跑4天！
 app.get('/api/admin/all-tasks', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    
-    // 直接拿伺服器肚子裡的資料，不再需要呼叫 Firebase getDocs 刷流量！
     const all = Object.values(localTasksCache).sort((a, b) => a.id.localeCompare(b.id));
 
     if (req.query.lightweight === 'true') {
@@ -280,6 +276,27 @@ app.post('/api/admin/reset-all', async (req, res) => {
         }
         res.json({ success: true, message: "所有資料已重製" });
     } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+// 🌟 新增：接收並儲存後台更改的「狀態」與「備註」
+app.post('/api/admin/update-meta/:taskId', async (req, res) => {
+    const taskId = req.params.taskId; 
+    const { processStatus, remark } = req.body; 
+    const task = localTasksCache[taskId];
+    if (!task) return res.status(404).json({ error: '找不到該任務' });
+
+    if (processStatus !== undefined) task.processStatus = processStatus;
+    if (remark !== undefined) task.remark = remark;
+
+    if (useFirebase) {
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', taskId), { 
+                processStatus: task.processStatus, 
+                remark: task.remark 
+            });
+        } catch (e) { console.error("Firebase 更新狀態/備註失敗:", e); }
+    }
+    res.json({ success: true });
 });
 
 app.listen(PORT, () => { console.log(`🚀 雙重風格叫號伺服器運行中，監聽 PORT: ${PORT}`); });
