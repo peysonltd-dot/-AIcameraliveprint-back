@@ -1,7 +1,7 @@
 {
   "name": "ai-photo-booth-backend",
-  "version": "1.0.0",
-  "description": "AI Photo Booth Backend using Replicate and Firebase Firestore",
+  "version": "1.1.0",
+  "description": "PEYSON AI photo booth backend with camera and QR photo upload modes",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,8 +9,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "firebase": "^10.8.0",
-    "replicate": "^0.30.0"
+    "firebase": "^10.8.0"
   },
   "engines": {
     "node": ">=18.0.0"
