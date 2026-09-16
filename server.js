@@ -371,12 +371,11 @@ async function feieRequest(apiname, extra = {}) {
 
 async function triggerFeiePrint(task) {
     const content = [
-        '<CB>專屬禮品兌換</CB><BR>', '<C>--------------------------------</C><BR>',
-        `<BR><CB>${task.id}</CB><BR><BR>`, '<C>--------------------------------</C><BR>',
-        `<C>排隊時間：${task.createdAt}</C><BR>`, '<C>--------------------------------</C><BR>',
-        '<C><B>領取說明：</B></C><BR>', '<C>領取時請出示此號碼牌</C><BR>',
-        '<C>交由工作人員兌換您的禮品</C><BR><BR>', '<CB>～感謝您的參與～</CB><BR>',
-        '<CB>～祝您體驗愉快～</CB><BR>'
+        '<C>2026觀光產業數位博覽會</C><BR>',
+        '<C>live print</C><BR>',
+        `<CB>${task.id}</CB><BR>`,
+        '<C>領取時請出示此號碼牌</C><BR>',
+        '<C>～祝您體驗愉快～</C><BR>'
     ].join('');
     return feieRequest('Open_printMsg', { content, times: '1' });
 }
