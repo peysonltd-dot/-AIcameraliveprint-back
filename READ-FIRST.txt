@@ -1,0 +1,28 @@
+V31 — QR Code 照片下載頁白色版本
+
+本次上傳位置是「後端」GitHub 專案：
+https://github.com/peysonltd-dot/-AIcameraliveprint-back
+請確認專案名稱前面有一個 -，結尾是 -back。
+
+1. 進入以上專案的 main 分支根目錄。
+2. Add file → Upload files，僅上傳本包的 server.js，覆蓋同名檔案。
+3. 按 Commit changes。等待 Render 連動部署完成、服務顯示 Live。
+   如果未啟用自動部署，在既有 Render 後端服務選 Manual Deploy → Deploy latest commit。
+4. 使用原本的 QR Code 下載連結重新整理，應看到白底、綠色下載按鈕、下方三個 Logo。
+   Logo 順序：成大醫院 → 台南市醫師公會 → 台南市診所商會。
+5. 用一筆已有選圖結果的序號測試：顯示正確照片，並確認長按儲存及一鍵下載。
+
+網址仍為：
+https://aicameraliveprint-back.onrender.com/download.html?taskId=您的序號&lang=zh
+原本 QR Code 可繼續使用，無需更換前台的 QR 產生程式。
+
+這次只有下載頁的 HTML/CSS 與 Logo 改版；下載頁內的照片讀取、選圖判斷、下載、重試、語言切換程式原樣保留。
+Logo 與樣式全部內嵌，無需上傳 assets，也不依賴外部 CSS/字型 CDN。
+拍照、AI 生成、後台合成、列印、資料儲存與清除程式沒有改動。
+不包含 V29 下載修補；V30 黑熊動畫保留在前台，與本包分開。
+
+注意：本包 server.js 是後端檔案，請勿傳到 AIcameraliveprint 前端專案。
+請勿重建服務、修改 APP_ID/Firebase 設定或操作資料清除；本次只需覆蓋檔案。
+
+驗證：JavaScript 語法、後端非頁面程式逐字一致、A/B 圖片選擇及三語下載流程模擬、無效序號與重試上限、三個 SVG 原檔一致。
+此包尚未部署；手機實機下載與線上視覺需於部署後確認。
