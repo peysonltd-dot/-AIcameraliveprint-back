@@ -497,6 +497,8 @@ app.post('/api/upload', async (req, res) => {
     }
 });
 
+require('./portrait-preview').installPortraitPreview(app, getTask);
+
 app.get('/api/status/:taskId', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     try {
@@ -691,5 +693,6 @@ app.use((error, _req, res, _next) => {
 app.listen(PORT, () => {
     console.log(`🚀 PEYSON AI 後端運行中，PORT ${PORT}，AI同時任務數 ${MAX_CONCURRENT_JOBS}`);
 });
+
 
 
