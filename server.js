@@ -371,8 +371,7 @@ async function feieRequest(apiname, extra = {}) {
 
 async function triggerFeiePrint(task) {
     const content = [
-        '<C>2026第31屆大專校院</C><BR>',
-        '<C>資訊應用服務創新競賽</C><BR>',
+        '<C>InnoServe 2026</C><BR>',
         '<C>live print</C><BR>',
         `<CB>${task.id}</CB><BR>`,
         '<C>領取時請出示此號碼牌</C><BR>',
