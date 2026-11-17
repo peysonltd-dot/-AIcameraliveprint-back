@@ -22,6 +22,7 @@ const MAX_IMAGE_DATA_URL_LENGTH = Math.max(500000, Number(process.env.MAX_IMAGE_
 app.use(cors());
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ limit: '12mb', extended: true }));
+require('./event-access')(app);
 
 let db;
 let useFirebase = false;
