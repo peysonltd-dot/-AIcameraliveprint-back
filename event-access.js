@@ -34,6 +34,6 @@ module.exports = function installEventAccess(app) {
   res.json({success:true,token:payload+'.'+sign(payload),expiresAt});
  });
  app.get('/api/event-access/status',guard,(_req,res)=>{res.setHeader('Cache-Control','no-store');res.json({success:true});});
- app.post(['/api/upload','/api/qr-session','/api/qr-session/:sessionId/photo','/api/qr-session/:sessionId/generate','/api/admin/retry/:taskId'],guard);
+ app.post(['/api/upload','/api/qr-session','/api/qr-session/:sessionId/photo','/api/qr-session/:sessionId/generate','/api/admin/retry/:taskId','/api/admin/printer-clear-queue'],guard);
  return {valid,guard};
 };

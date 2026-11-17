@@ -63,14 +63,26 @@ async function makePreview(source) {
     try { return await job; } finally { pending.delete(key); }
 }
 function installPortraitPreview(app, getTask) {
-    app.get('/api/preview/:taskId/:design', async (req, res) => {
-        res.setHeader('Cache-Control', 'private, no-store');
-        if (!/^\d{1,9}$/.test(req.params.taskId) || !['A', 'B'].includes(req.params.design)) {
-            return res.status(400).end();
-        }
+    app.get('/api/image/:taskId/:design', async (req, res) => {
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+        if (!/^\d{1,9}$/.test(req.params.taskId) || !['A','B'].includes(req.params.design)) return res.status(400).end();
         try {
             const task = await getTask(req.params.taskId);
             const source = task && task[`resultImage${req.params.design}`];
+            if (!source) return res.status(404).end();
+            const bytes = await readSource(source);
+            const format = (await sharp(bytes).metadata()).format;
+            res.type(`image/${format === 'jpg' ? 'jpeg' : format}`).send(bytes);
+        } catch (_) { res.status(502).end(); }
+    });
+    app.get('/api/preview/:taskId/:design', async (req, res) => {
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+        if (!/^\d{1,9}$/.test(req.params.taskId) || !['A', 'B', 'source'].includes(req.params.design)) {
+            return res.status(400).end();
+        }
+        try {
+            const task = await getTask(req.params.taskId, req.params.design === 'source');
+            const source = task && (req.params.design === 'source' ? task.sourceImage : task[`resultImage${req.params.design}`]);
             if (!source) return res.status(404).end();
             const bytes = await makePreview(source);
             const format = (await sharp(bytes).metadata()).format;
