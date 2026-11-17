@@ -37,8 +37,9 @@ async function readSource(source) {
         return Buffer.concat(chunks);
     } finally { clearTimeout(timer); }
 }
-async function makePreview(source) {
-    const key = crypto.createHash('sha256').update(source).digest('hex');
+async function makePreview(source, size = 640) {
+    size = size === 240 ? 240 : 640;
+    const key = crypto.createHash('sha256').update(String(size) + ':' + source).digest('hex');
     prune();
     if (cache.has(key)) return cache.get(key).bytes;
     if (pending.has(key)) return pending.get(key);
@@ -46,7 +47,7 @@ async function makePreview(source) {
     const job = (async () => {
         const original = await readSource(source);
         const resized = sharp(original, { limitInputPixels: 25000000 })
-            .rotate().resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true })
+            .rotate().resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
         ;
         let bytes = await resized.clone().webp({ quality: 80 }).toBuffer();
         if (bytes.length >= original.length) {
@@ -54,7 +55,10 @@ async function makePreview(source) {
             if (png.length < bytes.length) bytes = png;
         }
         // Flat art may already compress very well: never send a larger derivative.
-        if (bytes.length >= original.length) bytes = original;
+        if (bytes.length >= original.length) {
+            const meta = await sharp(original).metadata();
+            if (meta.width <= size && meta.height <= size) bytes = original;
+        }
         cache.set(key, { bytes, expires: Date.now() + 5 * 60 * 1000 });
         cacheBytes += bytes.length; prune();
         return bytes;
@@ -84,7 +88,7 @@ function installPortraitPreview(app, getTask) {
             const task = await getTask(req.params.taskId, req.params.design === 'source');
             const source = task && (req.params.design === 'source' ? task.sourceImage : task[`resultImage${req.params.design}`]);
             if (!source) return res.status(404).end();
-            const bytes = await makePreview(source);
+            const bytes = await makePreview(source, req.query?.size === '240' ? 240 : 640);
             const format = (await sharp(bytes).metadata()).format;
             res.type(`image/${format === 'jpg' ? 'jpeg' : format}`).send(bytes);
         } catch (_) { res.status(503).end(); }
